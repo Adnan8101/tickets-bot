@@ -15,7 +15,7 @@
     "tickets",
     "support"
   ],
-  "author": "Xieron",
+  "author": "EXE",
   "license": "MIT",
   "dependencies": {
     "@types/pg": "^8.15.6",

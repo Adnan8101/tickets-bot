@@ -92,4 +92,4 @@ For issues or questions, please open an issue on GitHub.
 
 ---
 
-**Powered by Xieron** • Built with ❤️
+**Powered by EXE** • Built with ❤️

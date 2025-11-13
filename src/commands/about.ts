@@ -32,7 +32,7 @@ export async function execute(
       },
       {
         name: 'Author',
-        value: 'Xieron',
+        value: 'Extreme Official ',
         inline: false
       },
       {
