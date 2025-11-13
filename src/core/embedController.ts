@@ -1,0 +1,324 @@
+import { EmbedBuilder, ColorResolvable } from 'discord.js';
+import { PanelData, AutosaveData } from './db/universalDB';
+
+export class EmbedController {
+  private static debounceTimers: Map<string, NodeJS.Timeout> = new Map();
+  private static botName: string = 'Beru Tickets';
+
+  static setBotName(name: string) {
+    this.botName = name;
+  }
+
+  static getBotName(): string {
+    return this.botName;
+  }
+
+  /**
+   * Create the main setup wizard embed
+   */
+  static createSetupWizardEmbed(data: Partial<PanelData>): EmbedBuilder {
+    const embed = new EmbedBuilder()
+      .setTitle('<:module:1437997093753983038> Ticket Panel Setup Wizard')
+      .setDescription('Welcome to the Ticket Panel Setup! Use the buttons below to configure your panel step by step.')
+      .setColor(null)
+      .addFields(
+        {
+          name: 'Panel Name',
+          value: data.name || '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Channel',
+          value: data.channel ? `<#${data.channel}>` : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Open Category',
+          value: data.openCategory ? `<#${data.openCategory}>` : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Close Category',
+          value: data.closeCategory ? `<#${data.closeCategory}>` : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Staff Role',
+          value: data.staffRole ? `<@&${data.staffRole}>` : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Logs Channel',
+          value: data.logsChannel ? `<#${data.logsChannel}>` : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Transcript Channel',
+          value: data.transcriptChannel ? `<#${data.transcriptChannel}>` : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Button Label',
+          value: data.label || 'Open Ticket',
+          inline: true
+        },
+        {
+          name: 'Emoji',
+          value: data.emoji || '<:module:1437997093753983038>',
+          inline: true
+        },
+        {
+          name: 'Button Color',
+          value: data.color || 'Primary (Blue)',
+          inline: true
+        },
+        {
+          name: 'Description',
+          value: data.description || 'Click below to open a ticket.',
+          inline: false
+        },
+        {
+          name: 'Open Message',
+          value: data.openMessage || 'Thank you for contacting support. Please describe your issue in detail.',
+          inline: false
+        },
+        {
+          name: 'Custom Questions',
+          value: data.questions && data.questions.length > 0 
+            ? data.questions.map((q, i) => `${i + 1}. ${q}`).join('\n')
+            : '`None`',
+          inline: false
+        },
+        {
+          name: 'User Permissions',
+          value: data.userPermissions && data.userPermissions.length > 0 
+            ? data.userPermissions.map(p => `\`${p}\``).join(', ')
+            : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Staff Permissions',
+          value: data.staffPermissions && data.staffPermissions.length > 0 
+            ? data.staffPermissions.map(p => `\`${p}\``).join(', ')
+            : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Claimable',
+          value: data.claimable ? '<:tcet_tick:1437995479567962184> Yes' : '<:tcet_cross:1437995480754946178> No',
+          inline: true
+        },
+        {
+          name: 'Enabled',
+          value: data.enabled !== false ? '<:tcet_tick:1437995479567962184> Yes' : '<:tcet_cross:1437995480754946178> No',
+          inline: true
+        }
+      )
+      .setFooter({ text: `Powered by Beru Tickets • ${new Date().toLocaleString()}` })
+      .setTimestamp();
+
+    return embed;
+  }
+
+  /**
+   * Create channel setup embed
+   */
+  static createChannelSetupEmbed(data: Partial<PanelData>): EmbedBuilder {
+    const embed = new EmbedBuilder()
+      .setTitle('<:zicons_newschannel:1437846918318526536> Channel Setup')
+      .setDescription('Configure the channels and roles for your ticket panel.')
+      .setColor(null)
+      .addFields(
+        {
+          name: 'Panel Name',
+          value: data.name || '`Not set`',
+          inline: false
+        },
+        {
+          name: 'Channel',
+          value: data.channel ? `<#${data.channel}>` : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Open Category',
+          value: data.openCategory ? `<#${data.openCategory}>` : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Close Category',
+          value: data.closeCategory ? `<#${data.closeCategory}>` : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Staff Role',
+          value: data.staffRole ? `<@&${data.staffRole}>` : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Logs Channel',
+          value: data.logsChannel ? `<#${data.logsChannel}>` : '`Not set`',
+          inline: true
+        },
+        {
+          name: 'Transcript Channel',
+          value: data.transcriptChannel ? `<#${data.transcriptChannel}>` : '`Not set`',
+          inline: true
+        }
+      )
+      .setFooter({ text: 'Powered by Beru Tickets' })
+      .setTimestamp();
+
+    return embed;
+  }
+
+  /**
+   * Create extra configuration embed
+   */
+  static createExtraConfigEmbed(data: Partial<PanelData>): EmbedBuilder {
+    const embed = new EmbedBuilder()
+      .setTitle('<:pb_utils:1437999137919340546> Extra Configuration')
+      .setDescription('Configure additional settings for your ticket panel.')
+      .setColor(null)
+      .addFields(
+        {
+          name: 'Description',
+          value: data.description || 'Click below to open a ticket.',
+          inline: false
+        },
+        {
+          name: 'Open Message',
+          value: data.openMessage || 'Thank you for contacting support. Please describe your issue.',
+          inline: false
+        },
+        {
+          name: 'Custom Questions',
+          value: data.questions && data.questions.length > 0 
+            ? data.questions.map((q, i) => `${i + 1}. ${q}`).join('\n')
+            : '`None`',
+          inline: false
+        },
+        {
+          name: 'Claimable',
+          value: data.claimable ? '<:tcet_tick:1437995479567962184> Yes' : '<:tcet_cross:1437995480754946178> No',
+          inline: true
+        },
+        {
+          name: 'Allow Owner Close',
+          value: data.allowOwnerClose !== false ? '<:tcet_tick:1437995479567962184> Yes' : '<:tcet_cross:1437995480754946178> No (Staff only)',
+          inline: true
+        }
+      )
+      .setFooter({ text: 'Powered by Beru Tickets' })
+      .setTimestamp();
+
+    return embed;
+  }
+
+  /**
+   * Create panel list embed
+   */
+  static createPanelListEmbed(panels: PanelData[]): EmbedBuilder {
+    const embed = new EmbedBuilder()
+      .setTitle('📋 Configured Ticket Panels')
+      .setColor(null)
+      .setTimestamp()
+      .setFooter({ text: 'Powered by Beru Tickets' });
+
+    if (panels.length === 0) {
+      embed.setDescription('No panels configured yet. Use `/ticket panel setup` to create one!');
+      return embed;
+    }
+
+    const description = panels.map(panel => {
+      return `${panel.emoji || '<:module:1437997093753983038>'} **${panel.name || 'Unnamed Panel'}**\n` +
+             `→ Channel: ${panel.channel ? `<#${panel.channel}>` : 'Not set'}\n` +
+             `→ Staff Role: ${panel.staffRole ? `<@&${panel.staffRole}>` : 'Not set'}\n` +
+             `→ Status: ${panel.enabled ? '<:tcet_tick:1437995479567962184> Enabled' : '<:tcet_cross:1437995480754946178> Disabled'}\n` +
+             `→ Tickets Created: ${panel.ticketsCreated || 0}\n`;
+    }).join('\n');
+
+    embed.setDescription(description);
+    return embed;
+  }
+
+  /**
+   * Create ticket welcome embed
+   */
+  static createTicketWelcomeEmbed(
+    owner: string,
+    staffRole: string,
+    panel: PanelData,
+    ticketId: string
+  ): EmbedBuilder {
+    const embed = new EmbedBuilder()
+      .setTitle('New Ticket Created')
+      .setDescription(`Hello <@${owner}>! Thank you for contacting support.\n\n${panel.openMessage}`)
+      .setColor(null)
+      .addFields(
+        {
+          name: 'Ticket Owner',
+          value: `<@${owner}>`,
+          inline: true
+        },
+        {
+          name: 'Ticket ID',
+          value: ticketId.split(':')[1],
+          inline: true
+        },
+        {
+          name: 'Staff Role',
+          value: `<@&${staffRole}>`,
+          inline: true
+        }
+      )
+      .setFooter({ text: 'Powered by Beru Tickets' })
+      .setTimestamp();
+
+    // Add custom questions if any
+    if (panel.questions && panel.questions.length > 0) {
+      embed.addFields({
+        name: 'Questions',
+        value: panel.questions.map((q, i) => `${i + 1}. ${q}`).join('\n'),
+        inline: false
+      });
+    }
+
+    return embed;
+  }
+
+  /**
+   * Create ticket closed embed
+   */
+  static createTicketClosedEmbed(closedBy: string): EmbedBuilder {
+    return new EmbedBuilder()
+      .setTitle('<:tcet_cross:1437995480754946178> Ticket Closed')
+      .setDescription(`This ticket has been closed by <@${closedBy}>.`)
+      .setColor(null)
+      .addFields(
+        {
+          name: 'Options',
+          value: '• Click **Reopen** to reopen this ticket\n• Click **Transcript** to generate and save the conversation',
+          inline: false
+        }
+      )
+      .setFooter({ text: 'Powered by Beru Tickets' })
+      .setTimestamp();
+  }
+
+  /**
+   * Debounced embed update
+   */
+  static debouncedUpdate(key: string, callback: () => void, delay: number = 500): void {
+    const existing = this.debounceTimers.get(key);
+    if (existing) {
+      clearTimeout(existing);
+    }
+
+    const timer = setTimeout(() => {
+      callback();
+      this.debounceTimers.delete(key);
+    }, delay);
+
+    this.debounceTimers.set(key, timer);
+  }
+}
