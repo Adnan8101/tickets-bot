@@ -8,6 +8,9 @@ import { EmbedController } from './core/embedController';
 import { SetupWizardHandler } from './modules/ticket/setupWizard';
 import { TicketHandler } from './modules/ticket/ticketHandler';
 import * as ticketCommand from './commands/ticket';
+import * as statusCommand from './commands/status';
+import * as pingCommand from './commands/ping';
+import * as aboutCommand from './commands/about';
 
 // Load environment variables
 config();
@@ -29,6 +32,9 @@ router.register('ticket', new TicketHandler());
 
 // Register commands
 client.commands.set('ticket', ticketCommand);
+client.commands.set('status', statusCommand);
+client.commands.set('ping', pingCommand);
+client.commands.set('about', aboutCommand);
 
 // Event: Ready (using clientReady to avoid deprecation warning)
 client.once('clientReady', async () => {
@@ -81,7 +87,12 @@ client.on('error', error => {
 // Register slash commands
 async function registerCommands(): Promise<void> {
   try {
-    const commands = [ticketCommand.data.toJSON()];
+    const commands = [
+      ticketCommand.data.toJSON(),
+      statusCommand.data.toJSON(),
+      pingCommand.data.toJSON(),
+      aboutCommand.data.toJSON()
+    ];
 
     const rest = new REST({ version: '10' }).setToken(TOKEN!);
 
