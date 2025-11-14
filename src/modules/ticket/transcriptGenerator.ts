@@ -76,11 +76,11 @@ export function createTranscriptEmbed(options: TranscriptOptions): EmbedBuilder 
     : 'N/A';
 
   const embed = new EmbedBuilder()
-    .setTitle(`📋 Ticket Transcript #${ticketNumber}`)
+    .setTitle(`<:module:1437997093753983038> Ticket Transcript #${ticketNumber}`)
     .setColor(0x5865F2)
     .addFields(
       {
-        name: '👤 User Information',
+        name: '<:user_icon:1437995661378191493> User Information',
         value: [
           `**Name:** ${username}`,
           `**User ID:** \`${userId}\``,
@@ -89,7 +89,7 @@ export function createTranscriptEmbed(options: TranscriptOptions): EmbedBuilder 
         inline: true
       },
       {
-        name: '🧑‍💼 Staff Information',
+        name: '<:xieron_staffs:1437995300164730931> Staff Information',
         value: staffName && staffId
           ? [
               `**Name:** ${staffName}`,
@@ -100,7 +100,7 @@ export function createTranscriptEmbed(options: TranscriptOptions): EmbedBuilder 
         inline: true
       },
       {
-        name: '📊 Ticket Statistics',
+        name: '<:k9logging:1437996243803705354> Ticket Statistics',
         value: [
           `**Ticket ID:** \`${ticketId}\``,
           `**Ticket Number:** \`#${ticketNumber}\``,
@@ -110,7 +110,7 @@ export function createTranscriptEmbed(options: TranscriptOptions): EmbedBuilder 
         inline: false
       },
       {
-        name: '🕒 Timeline',
+        name: '<:caution:1437997212008185866> Timeline',
         value: [
           `**Created:** <t:${Math.floor(createdAt.getTime() / 1000)}:F>`,
           closedAt ? `**Closed:** <t:${Math.floor(closedAt.getTime() / 1000)}:F>` : '**Status:** Still Open'

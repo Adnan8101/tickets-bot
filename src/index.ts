@@ -2,15 +2,20 @@ import { config } from 'dotenv';
 import { REST, Routes } from 'discord.js';
 import { createClient } from './core/client';
 import { router } from './core/interactionRouter';
+import { prefixHandler } from './core/prefixCommandHandler';
 import { StartupLoader } from './core/startupLoader';
 import { ErrorHandler } from './core/errorHandler';
 import { EmbedController } from './core/embedController';
 import { SetupWizardHandler } from './modules/ticket/setupWizard';
 import { TicketHandler } from './modules/ticket/ticketHandler';
+import { PanelHandler } from './modules/panel/panelHandler';
+import { ActivityType } from 'discord.js';
 import * as ticketCommand from './commands/ticket';
 import * as statusCommand from './commands/status';
 import * as pingCommand from './commands/ping';
 import * as aboutCommand from './commands/about';
+import * as setprefixCommand from './commands/setprefix';
+import * as panelCommand from './commands/panel';
 
 // Load environment variables
 config();
@@ -29,12 +34,15 @@ const client = createClient();
 // Register interaction handlers
 router.register('wizard', new SetupWizardHandler());
 router.register('ticket', new TicketHandler());
+router.register('panel', new PanelHandler());
 
 // Register commands
 client.commands.set('ticket', ticketCommand);
 client.commands.set('status', statusCommand);
 client.commands.set('ping', pingCommand);
 client.commands.set('about', aboutCommand);
+client.commands.set('setprefix', setprefixCommand);
+client.commands.set('panel', panelCommand);
 
 // Event: Ready (using clientReady to avoid deprecation warning)
 client.once('clientReady', async () => {
@@ -56,6 +64,16 @@ client.once('clientReady', async () => {
   // Load startup data
   await StartupLoader.load(client);
 
+  // Set bot activity status
+  client.user?.setPresence({
+    activities: [{
+      name: 'Managing your tickets',
+      type: ActivityType.Custom,
+      state: '🎫 Managing your tickets'
+    }],
+    status: 'online'
+  });
+
   console.log('\n✨ Bot is ready!\n');
 });
 
@@ -67,6 +85,25 @@ client.on('interactionCreate', async interaction => {
       if (command) {
         await command.execute(interaction, client);
       }
+    } else if (interaction.isAutocomplete()) {
+      // Handle autocomplete for panel command
+      if (interaction.commandName === 'panel') {
+        try {
+          const focusedOption = interaction.options.getFocused(true);
+          if (focusedOption.name === 'panel-name') {
+            const panels = await client.db.getAllPanels();
+            const choices = panels
+              .filter(p => p.name)
+              .map(p => ({ name: p.name!, value: p.name! }))
+              .filter(choice => choice.name.toLowerCase().includes(focusedOption.value.toLowerCase()))
+              .slice(0, 25);
+            await interaction.respond(choices);
+          }
+        } catch (error) {
+          console.error('Autocomplete error:', error);
+          await interaction.respond([]).catch(() => {});
+        }
+      }
     } else if (
       interaction.isButton() ||
       interaction.isStringSelectMenu() ||
@@ -76,6 +113,15 @@ client.on('interactionCreate', async interaction => {
     }
   } catch (error) {
     ErrorHandler.handle(error as Error, 'Interaction handler');
+  }
+});
+
+// Event: Message Create (for prefix commands)
+client.on('messageCreate', async message => {
+  try {
+    await prefixHandler.handleMessage(message, client);
+  } catch (error) {
+    ErrorHandler.handle(error as Error, 'Message handler');
   }
 });
 
@@ -91,7 +137,9 @@ async function registerCommands(): Promise<void> {
       ticketCommand.data.toJSON(),
       statusCommand.data.toJSON(),
       pingCommand.data.toJSON(),
-      aboutCommand.data.toJSON()
+      aboutCommand.data.toJSON(),
+      setprefixCommand.data.toJSON(),
+      panelCommand.data.toJSON()
     ];
 
     const rest = new REST({ version: '10' }).setToken(TOKEN!);

@@ -1,5 +1,5 @@
 import { EmbedBuilder, ColorResolvable } from 'discord.js';
-import { PanelData, AutosaveData } from './db/universalDB';
+import { PanelData, AutosaveData } from './db/postgresDB';
 
 export class EmbedController {
   private static debounceTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -114,8 +114,18 @@ export class EmbedController {
           inline: true
         }
       )
-      .setFooter({ text: `Powered by Beru Tickets • ${new Date().toLocaleString()}` })
+      .setFooter({ text: `Powered by ${EmbedController.botName} • ${new Date().toLocaleString()}` })
       .setTimestamp();
+
+    // Add edit summary if there are changes
+    if (data.editChanges && data.editChanges.length > 0) {
+      const changesPreview = data.editChanges.slice(-5).join('\n'); // Show last 5 changes
+      embed.addFields({
+        name: `📝 Recent Changes (${data.editChanges.length} total)`,
+        value: `\`\`\`\n${changesPreview}\n\`\`\``,
+        inline: false
+      });
+    }
 
     return embed;
   }
@@ -165,14 +175,14 @@ export class EmbedController {
           inline: true
         }
       )
-      .setFooter({ text: 'Powered by Beru Tickets' })
+      .setFooter({ text: `Powered by ${EmbedController.botName}` })
       .setTimestamp();
 
     return embed;
   }
 
   /**
-   * Create extra configuration embed
+   * Create permissions configuration embed
    */
   static createExtraConfigEmbed(data: Partial<PanelData>): EmbedBuilder {
     const embed = new EmbedBuilder()
@@ -208,14 +218,14 @@ export class EmbedController {
           inline: true
         }
       )
-      .setFooter({ text: 'Powered by Beru Tickets' })
+      .setFooter({ text: `Powered by ${EmbedController.botName}` })
       .setTimestamp();
 
     return embed;
   }
 
   /**
-   * Create panel list embed
+   * Create panel list embed with stats
    */
   static createPanelListEmbed(panels: PanelData[]): EmbedBuilder {
     const embed = new EmbedBuilder()

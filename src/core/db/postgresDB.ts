@@ -2,9 +2,14 @@ import { Pool, PoolClient } from 'pg';
 
 export interface DataRow {
   id: string;
-  type: 'panel' | 'ticket' | 'autosave' | 'config';
+  type: 'panel' | 'ticket' | 'autosave' | 'config' | 'template';
   data: string;
   updatedAt: string;
+}
+
+export interface CustomQuestion {
+  text: string;
+  type: 'primary' | 'optional';
 }
 
 export interface PanelData {
@@ -19,10 +24,11 @@ export interface PanelData {
   transcriptChannel?: string;
   label: string;
   emoji: string;
-  color: string;
+  color: 'Primary' | 'Secondary' | 'Success' | 'Danger';
   description: string;
   openMessage: string;
-  questions: string[];
+  questions: string[]; // Legacy support
+  customQuestions?: CustomQuestion[];
   claimable: boolean;
   allowOwnerClose?: boolean;
   enabled: boolean;
@@ -30,6 +36,7 @@ export interface PanelData {
   ticketsCreated?: number;
   userPermissions?: string[];
   staffPermissions?: string[];
+  editChanges?: string[]; // Track changes during editing
 }
 
 export interface TicketData {
@@ -54,9 +61,18 @@ export interface AutosaveData {
   data: Partial<PanelData>;
   tempPanel?: PanelData;
   startedAt: string;
+  editChanges?: string[]; // Track changes during editing
 }
 
-export type StoredData = PanelData | TicketData | AutosaveData;
+export interface GuildConfig {
+  id: string;
+  type: 'config';
+  guildId: string;
+  prefix: string;
+  updatedAt: string;
+}
+
+export type StoredData = PanelData | TicketData | AutosaveData | GuildConfig;
 
 class PostgresDB {
   private pool: Pool;
@@ -364,6 +380,64 @@ class PostgresDB {
    */
   isConnectionActive(): boolean {
     return this.isConnected;
+  }
+
+  /**
+   * Get guild configuration
+   */
+  async getGuildConfig(guildId: string): Promise<GuildConfig | null> {
+    return this.get<GuildConfig>(`config:${guildId}`);
+  }
+
+  /**
+   * Save guild configuration
+   */
+  async saveGuildConfig(guildId: string, prefix: string): Promise<void> {
+    const config: GuildConfig = {
+      id: `config:${guildId}`,
+      type: 'config',
+      guildId,
+      prefix,
+      updatedAt: new Date().toISOString()
+    };
+    await this.save(config);
+  }
+
+  /**
+   * Get guild prefix or default
+   */
+  async getPrefix(guildId: string): Promise<string> {
+    const config = await this.getGuildConfig(guildId);
+    return config?.prefix || '$';
+  }
+
+  /**
+   * Save panel template
+   */
+  async savePanelTemplate(templateId: string, template: any): Promise<void> {
+    // Create a copy without the 'id' field to avoid conflicts
+    const { id: _originalId, ...templateWithoutId } = template;
+    
+    const templateData = {
+      id: `template:${templateId}`,
+      type: 'template' as const,
+      ...templateWithoutId
+    };
+    await this.save(templateData as any);
+  }
+
+  /**
+   * Get panel template
+   */
+  async getPanelTemplate(templateId: string): Promise<any | null> {
+    return await this.get(`template:${templateId}`);
+  }
+
+  /**
+   * Get all templates
+   */
+  async getAllTemplates(): Promise<any[]> {
+    return this.getByType('template');
   }
 }
 

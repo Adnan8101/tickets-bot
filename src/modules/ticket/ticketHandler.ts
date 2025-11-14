@@ -8,9 +8,10 @@ import {
   AttachmentBuilder,
   TextChannel,
   StringSelectMenuInteraction,
+  ButtonInteraction,
 } from 'discord.js';
 import { BotClient } from '../../core/client';
-import { TicketData, PanelData } from '../../core/db/universalDB';
+import { TicketData, PanelData } from '../../core/db/postgresDB';
 import { EmbedController } from '../../core/embedController';
 import { InteractionHandler } from '../../core/interactionRouter';
 import { ErrorHandler } from '../../core/errorHandler';
@@ -128,6 +129,15 @@ export class TicketHandler implements InteractionHandler {
         case 'delete-select':
           await this.handleDeleteSelect(interaction, client);
           break;
+        case 'clear-select':
+          await this.handleClearSelect(interaction, client);
+          break;
+        case 'clear-all':
+          await this.handleClearAll(interaction, client);
+          break;
+        case 'clear-cancel':
+          await this.handleClearCancel(interaction);
+          break;
       }
     } catch (error) {
       ErrorHandler.handle(error as Error, 'TicketHandler');
@@ -148,19 +158,25 @@ export class TicketHandler implements InteractionHandler {
     const guild = interaction.guild;
     const user = interaction.user;
 
+    // Note: Removed restriction - users can now have multiple tickets on different panels
+    // Only check for existing ticket on THIS specific panel
     const existingTickets = (await client.db.getAllTickets())
       .filter(t => t.owner === user.id && t.state === 'open' && t.panelId === panelId);
 
     if (existingTickets.length > 0) {
       const existingChannel = existingTickets[0].channelId;
       await interaction.reply({
-        content: `<:tcet_cross:1437995480754946178> You already have an open ticket: <#${existingChannel}>`,
+        content: `<:tcet_cross:1437995480754946178> You already have an open ticket for this panel: <#${existingChannel}>`,
         flags: 1 << 6 // MessageFlags.Ephemeral
       });
       return;
     }
 
-    if (panel.questions && panel.questions.length > 0) {
+    // Check if we have custom questions (new format) or legacy questions
+    const hasQuestions = (panel.customQuestions && panel.customQuestions.length > 0) || 
+                        (panel.questions && panel.questions.length > 0);
+
+    if (hasQuestions) {
       const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = await import('discord.js');
       
       type TextInputBuilderType = InstanceType<typeof TextInputBuilder>;
@@ -169,13 +185,26 @@ export class TicketHandler implements InteractionHandler {
         .setCustomId(`ticket:answer:${panelId}`)
         .setTitle('Ticket Information');
 
-      const questionsToShow = panel.questions.slice(0, 5);
+      // Use customQuestions if available, otherwise fall back to legacy questions
+      let questionsToShow: Array<{ text: string; type: 'primary' | 'optional' }> = [];
+      
+      if (panel.customQuestions && panel.customQuestions.length > 0) {
+        // Sort: primary questions first, then optional
+        const primary = panel.customQuestions.filter(q => q.type === 'primary');
+        const optional = panel.customQuestions.filter(q => q.type === 'optional');
+        questionsToShow = [...primary, ...optional].slice(0, 5);
+      } else if (panel.questions && panel.questions.length > 0) {
+        // Legacy format: treat all as primary
+        questionsToShow = panel.questions.slice(0, 5).map(q => ({ text: q, type: 'primary' as const }));
+      }
+
       for (let i = 0; i < questionsToShow.length; i++) {
+        const q = questionsToShow[i];
         const textInput = new TextInputBuilder()
           .setCustomId(`question_${i}`)
-          .setLabel(questionsToShow[i].substring(0, 45))
+          .setLabel(q.text.substring(0, 45))
           .setStyle(TextInputStyle.Paragraph)
-          .setRequired(true)
+          .setRequired(q.type === 'primary') // Primary questions are required, optional are not
           .setMaxLength(1000);
 
         modal.addComponents(new ActionRowBuilder<TextInputBuilderType>().addComponents(textInput));
@@ -198,9 +227,24 @@ export class TicketHandler implements InteractionHandler {
     const guild = interaction.guild;
 
     const answers: Record<string, string> = {};
-    if (panel.questions) {
-      for (let i = 0; i < Math.min(panel.questions.length, 5); i++) {
-        answers[panel.questions[i]] = interaction.fields.getTextInputValue(`question_${i}`);
+    
+    // Use customQuestions if available, otherwise fall back to legacy questions
+    let questionsToShow: Array<{ text: string; type: 'primary' | 'optional' }> = [];
+    
+    if (panel.customQuestions && panel.customQuestions.length > 0) {
+      // Sort: primary questions first, then optional
+      const primary = panel.customQuestions.filter(q => q.type === 'primary');
+      const optional = panel.customQuestions.filter(q => q.type === 'optional');
+      questionsToShow = [...primary, ...optional].slice(0, 5);
+    } else if (panel.questions && panel.questions.length > 0) {
+      // Legacy format
+      questionsToShow = panel.questions.slice(0, 5).map(q => ({ text: q, type: 'primary' as const }));
+    }
+    
+    for (let i = 0; i < questionsToShow.length; i++) {
+      const answer = interaction.fields.getTextInputValue(`question_${i}`);
+      if (answer) { // Only include non-empty answers
+        answers[questionsToShow[i].text] = answer;
       }
     }
 
@@ -376,13 +420,14 @@ export class TicketHandler implements InteractionHandler {
       const welcomeMsg = await channel.send({
         content: `<@${user.id}> <@&${panel.staffRole}>`,
         embeds: [welcomeEmbed],
-        components: this.createTicketButtons(ticketId, panel),
+        components: this.createTicketButtons(ticketId, panel), // Only show Close button for new tickets
       });
       
       ticket.welcomeMessageId = welcomeMsg.id;
       await client.db.save(ticket);
 
       console.log(`[TICKET_CREATE] 💬 Welcome message sent (${welcomeMsg.id})`);
+      console.log(`[TICKET_CREATE] 💬 Buttons: Close button only (ticket is open)`);
       console.log(`[TICKET_CREATE] 💾 Ticket data saved to database`);
       console.log(`[TICKET_CREATE] 🎫 Ticket #${ticketNumber} creation complete!`);
 
@@ -408,6 +453,7 @@ export class TicketHandler implements InteractionHandler {
 
       await interaction.followUp({
         content: `<:tcet_tick:1437995479567962184> Ticket created: <#${channel.id}>`,
+        flags: 1 << 6 // MessageFlags.Ephemeral - only visible to author
       });
     } catch (error) {
       ErrorHandler.handle(error as Error, 'Create ticket channel');
@@ -418,7 +464,10 @@ export class TicketHandler implements InteractionHandler {
   }
 
   async closeTicket(interaction: any, client: BotClient, ticketId: string): Promise<void> {
+    console.log(`[CLOSE] ========================================`);
     console.log(`[CLOSE] Starting close process for ticket: ${ticketId}`);
+    console.log(`[CLOSE] Triggered by user: ${interaction.user?.tag} (${interaction.user?.id})`);
+    console.log(`[CLOSE] ========================================`);
     
     const ticket = await client.db.get<TicketData>(ticketId);
     if (!ticket) {
@@ -586,8 +635,25 @@ export class TicketHandler implements InteractionHandler {
 
       // Update welcome message to show closed state
       console.log(`[CLOSE] Updating welcome message...`);
-      await this.updateWelcomeMessageForClosed(channel, ticket, interaction.user.id);
+      await this.updateWelcomeMessageForClosed(channel, ticket, interaction.user.id, client.user?.username);
       console.log(`[CLOSE] Welcome message updated`);
+
+      // Send "Closing ticket" message
+      const closeEmbed = new EmbedBuilder()
+        .setDescription(`<:tcet_cross:1437995480754946178> **Closing ticket...**`)
+        .setColor(0xED4245)
+        .setTimestamp();
+      
+      const closeMsg = await channel.send({ embeds: [closeEmbed] });
+      
+      // Delete the message after 3 seconds
+      setTimeout(async () => {
+        try {
+          await closeMsg.delete();
+        } catch (error) {
+          // Message might already be deleted or channel closed
+        }
+      }, 3000);
 
       // Provide feedback with warnings if operations failed
       let responseMessage = '<:tcet_tick:1437995479567962184> Ticket closed successfully.';
@@ -607,11 +673,13 @@ export class TicketHandler implements InteractionHandler {
           if (logChannel?.isTextBased() && 'send' in logChannel) {
             const logEmbed = new EmbedBuilder()
               .setTitle('<:tcet_cross:1437995480754946178> Ticket Closed')
-              .setColor(null)
+              .setColor(0xED4245)
               .addFields(
                 { name: 'Ticket', value: `<#${channel.id}>`, inline: true },
                 { name: 'Closed By', value: `<@${interaction.user.id}>`, inline: true },
-                { name: 'Owner', value: `<@${ticket.owner}>`, inline: true }
+                { name: 'Owner', value: `<@${ticket.owner}>`, inline: true },
+                { name: 'Ticket ID', value: `\`${ticket.id}\``, inline: true },
+                { name: 'Panel', value: panel.name || 'Unknown', inline: true }
               )
               .setTimestamp();
             await logChannel.send({ embeds: [logEmbed] });
@@ -644,7 +712,10 @@ export class TicketHandler implements InteractionHandler {
   }
 
   async reopenTicket(interaction: any, client: BotClient, ticketId: string): Promise<void> {
+    console.log(`[REOPEN] ========================================`);
     console.log(`[REOPEN] Starting reopen process for ticket: ${ticketId}`);
+    console.log(`[REOPEN] Triggered by user: ${interaction.user?.tag} (${interaction.user?.id})`);
+    console.log(`[REOPEN] ========================================`);
     
     const ticket = await client.db.get<TicketData>(ticketId);
     if (!ticket) {
@@ -818,6 +889,23 @@ export class TicketHandler implements InteractionHandler {
       await this.updateWelcomeMessageButtons(channel, ticket, panel);
       console.log(`[REOPEN] Welcome message buttons updated`);
 
+      // Send "Reopening ticket" message
+      const reopenEmbed = new EmbedBuilder()
+        .setDescription(`<:tcet_tick:1437995479567962184> **Reopening ticket...**`)
+        .setColor(0x57F287)
+        .setTimestamp();
+      
+      const reopenMsg = await channel.send({ embeds: [reopenEmbed] });
+      
+      // Delete the message after 3 seconds
+      setTimeout(async () => {
+        try {
+          await reopenMsg.delete();
+        } catch (error) {
+          // Message might already be deleted
+        }
+      }, 3000);
+
       // Provide feedback with warnings if operations failed
       let responseMessage = '<:tcet_tick:1437995479567962184> Ticket reopened successfully.';
       if (!renameResult.success || !moveSuccess) {
@@ -828,6 +916,29 @@ export class TicketHandler implements InteractionHandler {
         content: responseMessage,
         flags: 1 << 6 // MessageFlags.Ephemeral
       });
+
+      // Log to logs channel
+      if (panel.logsChannel) {
+        try {
+          const logChannel = await client.channels.fetch(panel.logsChannel);
+          if (logChannel?.isTextBased() && 'send' in logChannel) {
+            const logEmbed = new EmbedBuilder()
+              .setTitle('<:tcet_tick:1437995479567962184> Ticket Reopened')
+              .setColor(0x57F287)
+              .addFields(
+                { name: 'Ticket', value: `<#${channel.id}>`, inline: true },
+                { name: 'Reopened By', value: `<@${interaction.user.id}>`, inline: true },
+                { name: 'Owner', value: `<@${ticket.owner}>`, inline: true },
+                { name: 'Ticket ID', value: `\`${ticket.id}\``, inline: true },
+                { name: 'Panel', value: panel.name || 'Unknown', inline: true }
+              )
+              .setTimestamp();
+            await logChannel.send({ embeds: [logEmbed] });
+          }
+        } catch (error) {
+          ErrorHandler.handle(error as Error, 'Log ticket reopen');
+        }
+      }
       
       console.log(`[REOPEN] Reopen process complete for ticket: ${ticketId}`);
     } catch (error) {
@@ -935,10 +1046,33 @@ export class TicketHandler implements InteractionHandler {
         const claimEmbed = new EmbedBuilder()
           .setTitle('<:tcet_tick:1437995479567962184> Ticket Claimed')
           .setDescription(`This ticket has been claimed by <@${interaction.user.id}>`)
-          .setColor(null)
+          .setColor(0x5865F2)
           .setTimestamp();
 
         await channel.send({ embeds: [claimEmbed] });
+      }
+
+      // Log to logs channel
+      if (panel.logsChannel && channel) {
+        try {
+          const logChannel = await client.channels.fetch(panel.logsChannel);
+          if (logChannel?.isTextBased() && 'send' in logChannel) {
+            const logEmbed = new EmbedBuilder()
+              .setTitle('<:tcet_tick:1437995479567962184> Ticket Claimed')
+              .setColor(0x5865F2)
+              .addFields(
+                { name: 'Ticket', value: `<#${channel.id}>`, inline: true },
+                { name: 'Claimed By', value: `<@${interaction.user.id}>`, inline: true },
+                { name: 'Owner', value: `<@${ticket.owner}>`, inline: true },
+                { name: 'Ticket ID', value: `\`${ticketId}\``, inline: true },
+                { name: 'Panel', value: panel.name || 'Unknown', inline: true }
+              )
+              .setTimestamp();
+            await logChannel.send({ embeds: [logEmbed] });
+          }
+        } catch (error) {
+          ErrorHandler.handle(error as Error, 'Log ticket claim');
+        }
       }
 
       await interaction.followUp({
@@ -1032,10 +1166,36 @@ export class TicketHandler implements InteractionHandler {
         const unclaimEmbed = new EmbedBuilder()
           .setTitle('<:tcet_tick:1437995479567962184> Ticket Unclaimed')
           .setDescription(`This ticket has been unclaimed by <@${claimedByUser}>`)
-          .setColor(null)
+          .setColor(0xFEE75C)
           .setTimestamp();
 
         await channel.send({ embeds: [unclaimEmbed] });
+      }
+
+      // Get panel for logging
+      const panel = await client.db.get<PanelData>(ticket.panelId);
+      
+      // Log to logs channel
+      if (panel?.logsChannel && channel) {
+        try {
+          const logChannel = await client.channels.fetch(panel.logsChannel);
+          if (logChannel?.isTextBased() && 'send' in logChannel) {
+            const logEmbed = new EmbedBuilder()
+              .setTitle('<:caution:1437997212008185866> Ticket Unclaimed')
+              .setColor(0xFEE75C)
+              .addFields(
+                { name: 'Ticket', value: `<#${channel.id}>`, inline: true },
+                { name: 'Unclaimed By', value: `<@${claimedByUser}>`, inline: true },
+                { name: 'Owner', value: `<@${ticket.owner}>`, inline: true },
+                { name: 'Ticket ID', value: `\`${ticketId}\``, inline: true },
+                { name: 'Panel', value: panel.name || 'Unknown', inline: true }
+              )
+              .setTimestamp();
+            await logChannel.send({ embeds: [logEmbed] });
+          }
+        } catch (error) {
+          ErrorHandler.handle(error as Error, 'Log ticket unclaim');
+        }
       }
 
       await interaction.followUp({
@@ -1294,21 +1454,13 @@ export class TicketHandler implements InteractionHandler {
         }
       }
 
-      if (panel.logsChannel) {
-        try {
-          const logChannel = await client.channels.fetch(panel.logsChannel);
-          if (logChannel?.isTextBased() && 'send' in logChannel) {
-            await logChannel.send({ embeds: [transcriptEmbed], files: [attachment] });
-          }
-        } catch (error) {
-          ErrorHandler.handle(error as Error, 'Send transcript to logs');
-        }
-      }
+      // Note: Transcripts are NOT sent to logs channel, only to transcript channel
+      // Logs channel is for ticket events (open, close, claim, etc.)
 
       try {
         const owner = await client.users.fetch(ticket.owner);
         await owner.send({
-          content: `📋 Your ticket has been closed. Here is the transcript:`,
+          content: `<:module:1437997093753983038> Your ticket has been closed. Here is the transcript:`,
           embeds: [transcriptEmbed],
           files: [attachment],
         });
@@ -1439,7 +1591,7 @@ export class TicketHandler implements InteractionHandler {
     }
   }
 
-  private async updateWelcomeMessageForClosed(channel: any, ticket: TicketData, closedByUserId: string): Promise<void> {
+  private async updateWelcomeMessageForClosed(channel: any, ticket: TicketData, closedByUserId: string, botUsername?: string): Promise<void> {
     try {
       console.log(`[UPDATE_CLOSED] Attempting to update for closed state, ticket ${ticket.id}`);
       console.log(`[UPDATE_CLOSED] Welcome message ID: ${ticket.welcomeMessageId}`);
@@ -1469,7 +1621,7 @@ export class TicketHandler implements InteractionHandler {
       
       if (existingEmbeds.length > 0) {
         const embed = EmbedBuilder.from(existingEmbeds[0]);
-        embed.setFooter({ text: `Closed by user ${closedByUserId} • Powered by Beru Tickets` });
+        embed.setFooter({ text: `Closed by user ${closedByUserId} • Powered by ${botUsername || 'Ticket Bot'}` });
         
         await welcomeMsg.edit({ 
           embeds: [embed],
@@ -1487,5 +1639,98 @@ export class TicketHandler implements InteractionHandler {
       console.log(`[UPDATE_CLOSED] Error updating welcome message for closed state:`, error);
       ErrorHandler.warn('Could not update welcome message for closed state');
     }
+  }
+
+  /**
+   * Handle clear ticket selection
+   */
+  async handleClearSelect(interaction: StringSelectMenuInteraction, client: BotClient): Promise<void> {
+    const userId = interaction.customId.split(':')[2];
+    const ticketIds = interaction.values;
+
+    await interaction.deferUpdate();
+
+    let deletedChannels = 0;
+    let deletedData = 0;
+
+    for (const ticketId of ticketIds) {
+      const ticket = await client.db.get(ticketId) as TicketData | null;
+      if (!ticket) continue;
+
+      // Try to delete the channel
+      try {
+        const channel = await client.channels.fetch(ticket.channelId);
+        if (channel) {
+          await channel.delete();
+          deletedChannels++;
+        }
+      } catch (error) {
+        console.warn(`Could not delete channel ${ticket.channelId}:`, error);
+      }
+
+      // Delete ticket data from database
+      await client.db.delete(ticketId);
+      deletedData++;
+    }
+
+    await interaction.editReply({
+      content: `<:tcet_tick:1437995479567962184> **Cleared ${deletedData} ticket(s)**\n\n` +
+               `<:k9logging:1437996243803705354> Channels deleted: ${deletedChannels}\n` +
+               `🗑️ Database entries removed: ${deletedData}`,
+      embeds: [],
+      components: [],
+    });
+  }
+
+  /**
+   * Handle clear all tickets for user
+   */
+  async handleClearAll(interaction: ButtonInteraction, client: BotClient): Promise<void> {
+    const userId = interaction.customId.split(':')[2];
+
+    await interaction.deferUpdate();
+
+    // Get all tickets for this user
+    const allTickets = await client.db.getAllTickets();
+    const userTickets = allTickets.filter((t: any) => t.owner === userId);
+
+    let deletedChannels = 0;
+    let deletedData = 0;
+
+    for (const ticket of userTickets) {
+      // Try to delete the channel
+      try {
+        const channel = await client.channels.fetch(ticket.channelId);
+        if (channel) {
+          await channel.delete();
+          deletedChannels++;
+        }
+      } catch (error) {
+        console.warn(`Could not delete channel ${ticket.channelId}:`, error);
+      }
+
+      // Delete ticket data from database
+      await client.db.delete(ticket.id);
+      deletedData++;
+    }
+
+    await interaction.editReply({
+      content: `<:tcet_tick:1437995479567962184> **Cleared all ${deletedData} ticket(s)**\n\n` +
+               `<:k9logging:1437996243803705354> Channels deleted: ${deletedChannels}\n` +
+               `🗑️ Database entries removed: ${deletedData}`,
+      embeds: [],
+      components: [],
+    });
+  }
+
+  /**
+   * Handle cancel clear operation
+   */
+  async handleClearCancel(interaction: ButtonInteraction): Promise<void> {
+    await interaction.update({
+      content: '<:tcet_cross:1437995480754946178> Operation cancelled.',
+      embeds: [],
+      components: [],
+    });
   }
 }

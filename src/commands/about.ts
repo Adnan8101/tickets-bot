@@ -22,7 +22,7 @@ export async function execute(
     .addFields(
       {
         name: 'Bot Name',
-        value: client.user?.username || 'Beru Tickets',
+        value: client.user?.username || 'Ticket Bot',
         inline: false
       },
       {

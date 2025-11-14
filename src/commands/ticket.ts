@@ -5,11 +5,13 @@ import {
   ActionRowBuilder,
   EmbedBuilder,
   PermissionFlagsBits,
+  ButtonBuilder,
+  ButtonStyle,
 } from 'discord.js';
 import { BotClient } from '../core/client';
 import { EmbedController } from '../core/embedController';
 import { SetupWizardHandler } from '../modules/ticket/setupWizard';
-import { PanelData } from '../core/db/universalDB';
+import { PanelData } from '../core/db/postgresDB';
 
 export const data = new SlashCommandBuilder()
   .setName('ticket')
@@ -75,6 +77,11 @@ export const data = new SlashCommandBuilder()
   )
   .addSubcommand(sub =>
     sub
+      .setName('delete')
+      .setDescription('Delete the current ticket permanently')
+  )
+  .addSubcommand(sub =>
+    sub
       .setName('clear-ticket')
       .setDescription('Clear a user\'s ticket data so they can create a new ticket')
       .addUserOption(option =>
@@ -133,6 +140,9 @@ export async function execute(
         break;
       case 'unclaim':
         await handleUnclaim(interaction, client);
+        break;
+      case 'delete':
+        await handleDeleteTicket(interaction, client);
         break;
       case 'clear-ticket':
         await handleClearTicket(interaction, client);
@@ -240,59 +250,234 @@ async function handleClearTicket(
   await interaction.deferReply({ flags: 1 << 6 }); // MessageFlags.Ephemeral
 
   const user = interaction.options.getUser('user', true);
-  const panelId = interaction.options.getString('panel');
 
   // Get all tickets for this user
   const allTickets = await client.db.getAllTickets();
-  let ticketsToClear = allTickets.filter((t: any) => t.owner === user.id);
+  const userTickets = allTickets.filter((t: any) => t.owner === user.id);
 
-  // If panel ID specified, only clear tickets for that panel
-  if (panelId) {
-    ticketsToClear = ticketsToClear.filter((t: any) => t.panelId === panelId);
-    
-    if (ticketsToClear.length === 0) {
-      await interaction.editReply({
-        content: `<:tcet_cross:1437995480754946178> No tickets found for ${user.tag} on panel \`${panelId}\`.`,
-      });
-      return;
-    }
-  } else {
-    if (ticketsToClear.length === 0) {
-      await interaction.editReply({
-        content: `<:tcet_cross:1437995480754946178> No tickets found for ${user.tag}.`,
-      });
-      return;
-    }
+  if (userTickets.length === 0) {
+    await interaction.editReply({
+      content: `<:tcet_cross:1437995480754946178> No tickets found for ${user.tag}.`,
+    });
+    return;
   }
 
-  // Delete ticket channels and data
-  let deletedChannels = 0;
-  let deletedData = 0;
+  // Get all panels to show panel names
+  const allPanels = await client.db.getAllPanels();
+  const panelMap = new Map(allPanels.map(p => [p.id, p]));
 
-  for (const ticket of ticketsToClear) {
-    // Try to delete the channel
+  // Create options for each ticket with panel info
+  const options = await Promise.all(userTickets.map(async (ticket: any) => {
+    const panel = panelMap.get(ticket.panelId);
+    const panelName = panel?.name || 'Unknown Panel';
+    const state = ticket.state === 'open' ? '🟢 Open' : '🔴 Closed';
+    
+    // Try to get channel name
+    let channelName = 'Unknown';
     try {
       const channel = await client.channels.fetch(ticket.channelId);
-      if (channel) {
-        await channel.delete();
-        deletedChannels++;
+      if (channel && 'name' in channel) {
+        channelName = `#${channel.name}`;
       }
     } catch (error) {
-      console.warn(`Could not delete channel ${ticket.channelId}:`, error);
+      channelName = '(deleted)';
     }
 
-    // Delete ticket data from database
-    client.db.delete(ticket.id);
-    deletedData++;
+    return {
+      label: `${channelName} - ${panelName}`,
+      description: `${state} • Created: ${new Date(ticket.createdAt).toLocaleDateString()}`,
+      value: ticket.id,
+      emoji: state === '🟢 Open' ? '🟢' : '🔴'
+    };
+  }));
+
+  // Create embed showing user's tickets
+  const embed = new EmbedBuilder()
+    .setTitle(`🗑️ Clear Tickets for ${user.tag}`)
+    .setDescription(
+      `Found **${userTickets.length}** ticket(s) for this user.\n\n` +
+      `**Select tickets to delete:**\n` +
+      `• Use the dropdown below to select individual tickets\n` +
+      `• Or click "Delete All" to clear all tickets at once\n\n` +
+      `⚠️ **Warning:** This action cannot be undone!`
+    )
+    .setColor(0xED4245)
+    .setFooter({ text: `User ID: ${user.id}` })
+    .setTimestamp();
+
+  const selectMenu = new StringSelectMenuBuilder()
+    .setCustomId(`ticket:clear-select:${user.id}`)
+    .setPlaceholder('Select tickets to delete')
+    .setMinValues(1)
+    .setMaxValues(Math.min(options.length, 25))
+    .addOptions(options.slice(0, 25)); // Discord limit
+
+  const row1 = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
+
+  const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`ticket:clear-all:${user.id}`)
+      .setLabel(`Delete All (${userTickets.length})`)
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji('🗑️'),
+    new ButtonBuilder()
+      .setCustomId('ticket:clear-cancel')
+      .setLabel('Cancel')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('✖️')
+  );
+
+  await interaction.editReply({
+    embeds: [embed],
+    components: [row1, row2],
+  });
+}
+
+async function handleDeleteTicket(
+  interaction: ChatInputCommandInteraction,
+  client: BotClient
+): Promise<void> {
+  await interaction.deferReply({ flags: 1 << 6 }); // MessageFlags.Ephemeral
+
+  const channel = interaction.channel;
+  if (!channel || !channel.isTextBased()) {
+    await interaction.editReply({
+      content: '<:tcet_cross:1437995480754946178> This command can only be used in a ticket channel.',
+    });
+    return;
   }
 
-  const panelText = panelId ? ` on panel \`${panelId}\`` : ' from all panels';
-  await interaction.editReply({
-    content: `<:tcet_tick:1437995479567962184> **Cleared ${deletedData} ticket(s) for ${user.tag}${panelText}**\n\n` +
-             `<:k9logging:1437996243803705354> Channels deleted: ${deletedChannels}\n` +
-             `🗑️ Database entries removed: ${deletedData}\n\n` +
-             `${user.tag} can now create new tickets!`,
-  });
+  // Find ticket by channel ID
+  const tickets = await client.db.getAllTickets();
+  const ticket = tickets.find((t: any) => t.channelId === channel.id);
+
+  if (!ticket) {
+    await interaction.editReply({
+      content: '<:tcet_cross:1437995480754946178> This is not a ticket channel.',
+    });
+    return;
+  }
+
+  // Check if user is staff or has manage channels permission
+  const panel = await client.db.get<PanelData>(ticket.panelId);
+  const member = interaction.member as any;
+  const isStaff = member?.roles?.cache?.has(panel?.staffRole || '') || interaction.memberPermissions?.has('ManageChannels');
+
+  if (!isStaff) {
+    await interaction.editReply({
+      content: '<:tcet_cross:1437995480754946178> **Only staff members can delete tickets.**',
+    });
+    return;
+  }
+
+  try {
+    // Import TextChannel type
+    const { TextChannel } = await import('discord.js');
+    
+    // Generate transcript before deleting if ticket is closed
+    if (ticket.state === 'closed' && channel instanceof TextChannel) {
+      const { generateProfessionalTranscript, createTranscriptEmbed } = await import('../modules/ticket/transcriptGenerator');
+      const ticketNumber = parseInt(ticket.id.split(':')[1]);
+      const owner = await client.users.fetch(ticket.owner);
+      
+      let staffName: string | undefined;
+      let staffId: string | undefined;
+      if (ticket.claimedBy) {
+        try {
+          const staff = await client.users.fetch(ticket.claimedBy);
+          staffName = staff.username;
+          staffId = staff.id;
+        } catch (error) {
+          console.warn('Could not fetch staff user');
+        }
+      }
+
+      const transcriptOptions = {
+        ticketId: ticket.id,
+        ticketNumber,
+        username: owner.username,
+        userId: owner.id,
+        staffName,
+        staffId,
+        panelName: panel?.name || 'Unknown Panel',
+        createdAt: new Date(ticket.createdAt),
+        closedAt: ticket.closedAt ? new Date(ticket.closedAt) : undefined
+      };
+
+      const attachment = await generateProfessionalTranscript(channel, transcriptOptions);
+      const transcriptEmbed = createTranscriptEmbed(transcriptOptions);
+
+      // Send transcript to transcript channel if configured
+      if (panel?.transcriptChannel) {
+        try {
+          const transcriptChannel = await client.channels.fetch(panel.transcriptChannel);
+          if (transcriptChannel?.isTextBased() && 'send' in transcriptChannel) {
+            await transcriptChannel.send({ 
+              content: '🗑️ **Ticket Deleted - Transcript Saved**',
+              embeds: [transcriptEmbed], 
+              files: [attachment] 
+            });
+          }
+        } catch (error) {
+          console.error('Failed to send transcript:', error);
+        }
+      }
+
+      // Try to DM transcript to owner
+      try {
+        await owner.send({
+          content: `🗑️ **Your ticket has been deleted.** Here is the transcript:`,
+          embeds: [transcriptEmbed],
+          files: [attachment],
+        });
+      } catch (error) {
+        console.warn('Could not DM transcript to ticket owner');
+      }
+    }
+
+    // Log to logs channel before deleting
+    if (panel?.logsChannel && 'name' in channel) {
+      try {
+        const logChannel = await client.channels.fetch(panel.logsChannel);
+        if (logChannel?.isTextBased() && 'send' in logChannel) {
+          const logEmbed = new EmbedBuilder()
+            .setTitle('🗑️ Ticket Deleted')
+            .setColor(0xED4245)
+            .addFields(
+              { name: 'Ticket', value: `\`#${channel.name}\``, inline: true },
+              { name: 'Deleted By', value: `<@${interaction.user.id}>`, inline: true },
+              { name: 'Owner', value: `<@${ticket.owner}>`, inline: true },
+              { name: 'Ticket ID', value: `\`${ticket.id}\``, inline: true },
+              { name: 'State', value: ticket.state, inline: true },
+              { name: 'Panel', value: panel.name || 'Unknown', inline: true }
+            )
+            .setTimestamp();
+          await logChannel.send({ embeds: [logEmbed] });
+        }
+      } catch (error) {
+        console.error('Failed to log ticket deletion:', error);
+      }
+    }
+
+    // Send confirmation before deletion
+    await interaction.editReply({
+      content: '<:tcet_tick:1437995479567962184> **Ticket will be deleted in 3 seconds...**\n\n*Transcript has been saved and sent.*',
+    });
+
+    // Wait 3 seconds
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    // Delete ticket data
+    client.db.delete(ticket.id);
+
+    // Delete channel
+    await channel.delete();
+  } catch (error) {
+    console.error('Failed to delete ticket:', error);
+    await interaction.editReply({
+      content: '<:tcet_cross:1437995480754946178> Failed to delete ticket. Please try again or delete the channel manually.',
+    }).catch(() => {});
+  }
 }
 
 async function handleClose(
@@ -417,6 +602,34 @@ async function handleRename(
   try {
     if ('setName' in channel) {
       await channel.setName(sanitizedName);
+      
+      // Get panel for logging
+      const panel = await client.db.get<PanelData>(ticket.panelId);
+      
+      // Log to logs channel
+      if (panel?.logsChannel) {
+        try {
+          const logChannel = await client.channels.fetch(panel.logsChannel);
+          if (logChannel?.isTextBased() && 'send' in logChannel) {
+            const logEmbed = new EmbedBuilder()
+              .setTitle('<:settings:1437996913180934144> Ticket Renamed')
+              .setColor(0x5865F2)
+              .addFields(
+                { name: 'Ticket', value: `<#${channel.id}>`, inline: true },
+                { name: 'Renamed By', value: `<@${interaction.user.id}>`, inline: true },
+                { name: 'Owner', value: `<@${ticket.owner}>`, inline: true },
+                { name: 'New Name', value: `\`${sanitizedName}\``, inline: true },
+                { name: 'Ticket ID', value: `\`${ticket.id}\``, inline: true },
+                { name: 'Panel', value: panel.name || 'Unknown', inline: true }
+              )
+              .setTimestamp();
+            await logChannel.send({ embeds: [logEmbed] });
+          }
+        } catch (error) {
+          console.error('Failed to log rename:', error);
+        }
+      }
+      
       await interaction.editReply({
         content: `<:tcet_tick:1437995479567962184> Ticket channel renamed to **${sanitizedName}**`,
       });
@@ -457,10 +670,22 @@ async function handleAddUser(
     return;
   }
 
+  // Get panel to check staff role
+  const panel = await client.db.get<PanelData>(ticket.panelId);
+  const member = interaction.member as any;
+  const isStaff = member?.roles?.cache?.has(panel?.staffRole || '') || interaction.memberPermissions?.has('ManageChannels');
+
+  // Only staff can add users
+  if (!isStaff) {
+    await interaction.editReply({
+      content: '<:tcet_cross:1437995480754946178> **Only staff members can add users to tickets.**\n\nYou must have the staff role or Manage Channels permission.',
+    });
+    return;
+  }
+
   const user = interaction.options.getUser('user', true);
 
   // Get panel to use configured permissions
-  const panel = await client.db.get(ticket.panelId) as PanelData | null;
   const userPermissions = panel?.userPermissions || [];
 
   try {

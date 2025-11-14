@@ -17,7 +17,7 @@ import {
 } from 'discord.js';
 import { BotClient } from '../../core/client';
 import { EmbedController } from '../../core/embedController';
-import { PanelData, AutosaveData } from '../../core/db/universalDB';
+import { PanelData, AutosaveData } from '../../core/db/postgresDB';
 import { InteractionHandler } from '../../core/interactionRouter';
 import { ErrorHandler } from '../../core/errorHandler';
 
@@ -186,6 +186,9 @@ export class SetupWizardHandler implements InteractionHandler {
         case 'select-ownerclose':
           await this.handleOwnerCloseSelect(interaction as StringSelectMenuInteraction, client, userId);
           break;
+        case 'select-color':
+          await this.handleColorSelect(interaction as StringSelectMenuInteraction, client, userId);
+          break;
         case 'delete-question':
           await this.handleDeleteQuestion(interaction as StringSelectMenuInteraction, client, userId);
           break;
@@ -234,15 +237,25 @@ export class SetupWizardHandler implements InteractionHandler {
     return defaultData;
   }
 
-  private saveAutosave(client: BotClient, userId: string, data: Partial<PanelData>): void {
+  private saveAutosave(client: BotClient, userId: string, data: Partial<PanelData>, change?: string): void {
     const autosave: AutosaveData = {
       id: `autosave:${userId}`,
       type: 'autosave',
       userId,
       data,
       startedAt: new Date().toISOString(),
+      editChanges: change ? [...(data.editChanges || []), change] : (data.editChanges || []),
     };
     client.db.save(autosave);
+  }
+
+  private addEditChange(data: Partial<PanelData>, field: string, oldValue: any, newValue: any): void {
+    if (!data.editChanges) data.editChanges = [];
+    
+    // Format git-style change message
+    const timestamp = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const change = `[${timestamp}] Modified ${field}: "${oldValue || 'empty'}" → "${newValue}"`;
+    data.editChanges.push(change);
   }
 
   async showMainMenu(interaction: any, client: BotClient, userId: string): Promise<void> {
@@ -425,6 +438,8 @@ export class SetupWizardHandler implements InteractionHandler {
   }
 
   async showNameModal(interaction: ButtonInteraction, client: BotClient, userId: string): Promise<void> {
+    const data = await this.getOrCreateAutosave(client, userId);
+    
     const modal = new ModalBuilder()
       .setCustomId('wizard:modal-name:setup')
       .setTitle('Set Panel Name');
@@ -437,12 +452,19 @@ export class SetupWizardHandler implements InteractionHandler {
       .setRequired(true)
       .setMaxLength(100);
 
+    // Auto-load current value if editing
+    if (data.name) {
+      nameInput.setValue(data.name);
+    }
+
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(nameInput));
 
     await interaction.showModal(modal);
   }
 
   async showDescriptionModal(interaction: ButtonInteraction, client: BotClient, userId: string): Promise<void> {
+    const data = await this.getOrCreateAutosave(client, userId);
+    
     const modal = new ModalBuilder()
       .setCustomId('wizard:modal-description:setup')
       .setTitle('Set Panel Description');
@@ -455,12 +477,19 @@ export class SetupWizardHandler implements InteractionHandler {
       .setRequired(true)
       .setMaxLength(500);
 
+    // Auto-load current value if editing
+    if (data.description) {
+      descInput.setValue(data.description);
+    }
+
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(descInput));
 
     await interaction.showModal(modal);
   }
 
   async showOpenMessageModal(interaction: ButtonInteraction, client: BotClient, userId: string): Promise<void> {
+    const data = await this.getOrCreateAutosave(client, userId);
+    
     const modal = new ModalBuilder()
       .setCustomId('wizard:modal-openmessage:setup')
       .setTitle('Set Open Message');
@@ -472,6 +501,11 @@ export class SetupWizardHandler implements InteractionHandler {
       .setPlaceholder('Thank you for contacting support...')
       .setRequired(true)
       .setMaxLength(1000);
+
+    // Auto-load current value if editing
+    if (data.openMessage) {
+      msgInput.setValue(data.openMessage);
+    }
 
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(msgInput));
 
@@ -491,7 +525,19 @@ export class SetupWizardHandler implements InteractionHandler {
       .setRequired(true)
       .setMaxLength(500);
 
-    modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(questionInput));
+    const typeInput = new TextInputBuilder()
+      .setCustomId('type')
+      .setLabel('Question Type (primary or optional)')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('primary')
+      .setRequired(false)
+      .setMaxLength(10)
+      .setValue('primary');
+
+    modal.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(questionInput),
+      new ActionRowBuilder<TextInputBuilder>().addComponents(typeInput)
+    );
 
     await interaction.showModal(modal);
   }
@@ -552,6 +598,17 @@ export class SetupWizardHandler implements InteractionHandler {
     await this.showExtraMenu(interaction, client, userId);
   }
 
+  async handleColorSelect(interaction: StringSelectMenuInteraction, client: BotClient, userId: string): Promise<void> {
+    const data = await this.getOrCreateAutosave(client, userId);
+    const color = interaction.values[0] as 'Primary' | 'Secondary' | 'Success' | 'Danger';
+    const oldValue = data.color;
+    data.color = color;
+    if (oldValue) this.addEditChange(data, 'Button Color', oldValue, color);
+    this.saveAutosave(client, userId, data);
+    // No need to defer - already deferred by router
+    await this.showButtonMenu(interaction, client, userId);
+  }
+
   async handleDeleteQuestion(interaction: StringSelectMenuInteraction, client: BotClient, userId: string): Promise<void> {
     const data = await this.getOrCreateAutosave(client, userId);
     const index = parseInt(interaction.values[0]);
@@ -605,7 +662,9 @@ export class SetupWizardHandler implements InteractionHandler {
   async handleNameModal(interaction: ModalSubmitInteraction, client: BotClient, userId: string): Promise<void> {
     const name = interaction.fields.getTextInputValue('name');
     const data = await this.getOrCreateAutosave(client, userId);
+    const oldValue = data.name;
     data.name = name;
+    if (oldValue) this.addEditChange(data, 'Panel Name', oldValue, name);
     this.saveAutosave(client, userId, data);
     await interaction.deferUpdate();
     await this.showChannelMenu(interaction, client, userId);
@@ -614,7 +673,9 @@ export class SetupWizardHandler implements InteractionHandler {
   async handleDescriptionModal(interaction: ModalSubmitInteraction, client: BotClient, userId: string): Promise<void> {
     const description = interaction.fields.getTextInputValue('description');
     const data = await this.getOrCreateAutosave(client, userId);
+    const oldValue = data.description;
     data.description = description;
+    if (oldValue) this.addEditChange(data, 'Description', oldValue.substring(0, 30), description.substring(0, 30));
     this.saveAutosave(client, userId, data);
     await interaction.deferUpdate();
     await this.showExtraMenu(interaction, client, userId);
@@ -631,9 +692,23 @@ export class SetupWizardHandler implements InteractionHandler {
 
   async handleQuestionModal(interaction: ModalSubmitInteraction, client: BotClient, userId: string): Promise<void> {
     const question = interaction.fields.getTextInputValue('question');
+    const typeInput = interaction.fields.getTextInputValue('type').toLowerCase().trim();
+    const type = (typeInput === 'optional' || typeInput === 'primary') ? typeInput as 'primary' | 'optional' : 'primary';
+    
     const data = await this.getOrCreateAutosave(client, userId);
+    
+    // Initialize customQuestions if not exists
+    if (!data.customQuestions) data.customQuestions = [];
+    
+    // Also keep legacy questions array for backward compatibility
     if (!data.questions) data.questions = [];
+    
+    // Add to customQuestions array
+    data.customQuestions.push({ text: question, type });
+    
+    // Add to legacy questions array (text only)
     data.questions.push(question);
+    
     this.saveAutosave(client, userId, data);
     await interaction.deferUpdate();
     await this.showExtraMenu(interaction, client, userId);
@@ -642,7 +717,9 @@ export class SetupWizardHandler implements InteractionHandler {
   async handleLabelModal(interaction: ModalSubmitInteraction, client: BotClient, userId: string): Promise<void> {
     const label = interaction.fields.getTextInputValue('label');
     const data = await this.getOrCreateAutosave(client, userId);
+    const oldValue = data.label;
     data.label = label;
+    if (oldValue) this.addEditChange(data, 'Button Label', oldValue, label);
     this.saveAutosave(client, userId, data);
     await interaction.deferUpdate();
     await this.showButtonMenu(interaction, client, userId);
@@ -682,6 +759,7 @@ export class SetupWizardHandler implements InteractionHandler {
       description: data.description || 'Click below to open a ticket.',
       openMessage: data.openMessage || 'Thank you for contacting support.',
       questions: data.questions || [],
+      customQuestions: data.customQuestions || [],
       claimable: data.claimable || false,
       allowOwnerClose: data.allowOwnerClose !== false,
       enabled: data.enabled !== undefined ? data.enabled : true,
@@ -713,12 +791,21 @@ export class SetupWizardHandler implements InteractionHandler {
           .setFooter({ text: 'Click the button below to open a ticket' })
           .setTimestamp();
         
+        // Map color string to ButtonStyle
+        const colorMap = {
+          'Primary': ButtonStyle.Primary,
+          'Secondary': ButtonStyle.Secondary,
+          'Success': ButtonStyle.Success,
+          'Danger': ButtonStyle.Danger,
+        };
+        const buttonStyle = colorMap[panel.color] || ButtonStyle.Primary;
+        
         const button = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
             .setCustomId(`ticket:open:${panelId}`)
             .setLabel(panel.label)
             .setEmoji(panel.emoji)
-            .setStyle(ButtonStyle.Primary)
+            .setStyle(buttonStyle)
         );
 
         // If editing and message exists, try to edit it, otherwise send new message
@@ -771,7 +858,7 @@ export class SetupWizardHandler implements InteractionHandler {
         { name: 'Emoji', value: data.emoji || '<:module:1437997093753983038>', inline: true },
         { name: 'Color', value: data.color || 'Primary', inline: true }
       )
-      .setFooter({ text: 'Powered by Beru Tickets' })
+      .setFooter({ text: `Powered by ${client.user?.username || 'Ticket Bot'}` })
       .setTimestamp();
 
     const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -787,7 +874,19 @@ export class SetupWizardHandler implements InteractionHandler {
         .setStyle(ButtonStyle.Secondary)
     );
 
-    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    const row2 = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId('wizard:select-color:setup')
+        .setPlaceholder('Select Button Color')
+        .addOptions([
+          { label: 'Primary (Blurple)', value: 'Primary', emoji: '🔵', description: 'Discord\'s default blue color' },
+          { label: 'Secondary (Gray)', value: 'Secondary', emoji: '⚪', description: 'Neutral gray color' },
+          { label: 'Success (Green)', value: 'Success', emoji: '🟢', description: 'Green color for success' },
+          { label: 'Danger (Red)', value: 'Danger', emoji: '🔴', description: 'Red color for important actions' }
+        ])
+    );
+
+    const row3 = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId('wizard:main:back')
         .setLabel('Back to Main')
@@ -795,7 +894,7 @@ export class SetupWizardHandler implements InteractionHandler {
         .setStyle(ButtonStyle.Secondary)
     );
 
-    await interaction.editReply({ embeds: [embed], components: [row1, row2] });
+    await interaction.editReply({ embeds: [embed], components: [row1, row2, row3] });
   }
 
   async showChannelDropdown(interaction: any, client: BotClient, userId: string): Promise<void> {
@@ -1049,6 +1148,8 @@ export class SetupWizardHandler implements InteractionHandler {
   }
 
   async showLabelModal(interaction: ButtonInteraction, client: BotClient, userId: string): Promise<void> {
+    const data = await this.getOrCreateAutosave(client, userId);
+    
     const modal = new ModalBuilder()
       .setCustomId('wizard:modal-label:setup')
       .setTitle('Set Button Label');
@@ -1060,6 +1161,11 @@ export class SetupWizardHandler implements InteractionHandler {
       .setPlaceholder('e.g., Open Ticket')
       .setRequired(true)
       .setMaxLength(80);
+
+    // Auto-load current value if editing
+    if (data.label) {
+      labelInput.setValue(data.label);
+    }
 
     modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(labelInput));
 
@@ -1402,7 +1508,7 @@ export class SetupWizardHandler implements InteractionHandler {
           inline: false
         }
       )
-      .setFooter({ text: 'Powered by Beru Tickets' })
+      .setFooter({ text: `Powered by ${client.user?.username || 'Ticket Bot'}` })
       .setTimestamp();
 
     const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
