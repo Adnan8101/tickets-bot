@@ -1,37 +1,44 @@
 {
-  "name": "beru-tickets-2.0",
-  "version": "2.0.0",
-  "description": "Advanced Discord Ticket System with Universal Interaction Architecture",
-  "main": "dist/index.js",
-  "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
-    "watch": "tsc -w"
-  },
-  "keywords": [
-    "discord",
-    "bot",
-    "tickets",
-    "support"
-  ],
-  "author": "EXE",
-  "license": "MIT",
-  "dependencies": {
-    "@types/pg": "^8.15.6",
-    "better-sqlite3": "^11.7.0",
-    "discord-html-transcripts": "^3.2.0",
-    "discord.js": "^14.14.1",
-    "dotenv": "^16.3.1",
-    "pg": "^8.16.3"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.11",
-    "@types/node": "^22.0.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.3.3"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  }
+"name": "beru-tickets-2.0",
+"version": "2.0.0",
+"description": "Advanced Discord Ticket System with Universal Interaction Architecture",
+"main": "dist/index.js",
+"scripts": {
+"build": "tsc",
+"start": "ts-node src/index.ts",
+"dev": "ts-node src/index.ts",
+"watch": "tsc -w",
+"pm2:start": "pm2 start ecosystem.config.js",
+"pm2:restart": "pm2 restart beru-bot",
+"pm2:stop": "pm2 stop beru-bot",
+"pm2:delete": "pm2 delete beru-bot",
+"pm2:logs": "pm2 logs beru-bot"
+},
+"keywords": [
+"discord",
+"bot",
+"tickets",
+"support"
+],
+"author": "EXE",
+"license": "MIT",
+"dependencies": {
+"@types/pg": "^8.15.6",
+"better-sqlite3": "^11.7.0",
+"discord-html-transcripts": "^3.2.0",
+"discord.js": "^14.14.1",
+"dotenv": "^16.3.1",
+"googleapis": "^166.0.0",
+"pg": "^8.16.3",
+"pm2": "^6.0.13"
+},
+"devDependencies": {
+"@types/better-sqlite3": "^7.6.11",
+"@types/node": "^22.0.0",
+"ts-node": "^10.9.2",
+"typescript": "^5.3.3"
+},
+"engines": {
+"node": ">=18.0.0"
+}
 }
