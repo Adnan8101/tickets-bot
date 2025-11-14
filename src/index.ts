@@ -20,21 +20,28 @@ import * as panelCommand from './commands/panel';
 // Load environment variables
 config();
 
+console.log('🔧 Loading environment variables...');
+
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 
 if (!TOKEN || !CLIENT_ID) {
-  console.error('<:tcet_cross:1437995480754946178> Missing DISCORD_TOKEN or CLIENT_ID in environment variables');
+  console.error('❌ Missing required environment variables: DISCORD_TOKEN or CLIENT_ID');
   process.exit(1);
 }
 
+console.log('✅ Environment variables loaded');
+console.log('📦 Initializing bot...');
+
 // Create client
 const client = createClient();
+console.log('✅ Client created');
 
 // Register interaction handlers
 router.register('wizard', new SetupWizardHandler());
 router.register('ticket', new TicketHandler());
 router.register('panel', new PanelHandler());
+console.log('✅ Interaction handlers registered');
 
 // Register commands
 client.commands.set('ticket', ticketCommand);
@@ -43,15 +50,21 @@ client.commands.set('ping', pingCommand);
 client.commands.set('about', aboutCommand);
 client.commands.set('setprefix', setprefixCommand);
 client.commands.set('panel', panelCommand);
+console.log('✅ Commands registered');
 
 // Event: Ready (using clientReady to avoid deprecation warning)
 client.once('clientReady', async () => {
-  console.log('╔════════════════════════════════════════╗');
-  console.log('║  <:module:1437997093753983038>  BERU TICKETS 2.0                 ║');
-  console.log('║  Powered by Universal Interaction      ║');
-  console.log('╚════════════════════════════════════════╝');
-  console.log(`\n<:tcet_tick:1437995479567962184> Logged in as ${client.user?.tag}`);
-  console.log(`<:k9logging:1437996243803705354> Serving ${client.guilds.cache.size} server(s)\n`);
+  console.log('\n🤖 Bot is online!');
+  console.log(`📝 Logged in as ${client.user?.tag}`);
+
+  // Wait for database connection
+  console.log('🔌 Waiting for database connection...');
+  const dbConnected = await client.db.waitForConnection(30000);
+  if (!dbConnected) {
+    console.error('❌ Database connection timeout');
+    process.exit(1);
+  }
+  console.log('✅ Database connected');
 
   // Set bot name for embeds
   if (client.user?.username) {
@@ -59,10 +72,14 @@ client.once('clientReady', async () => {
   }
 
   // Register slash commands
+  console.log('📋 Registering slash commands...');
   await registerCommands();
+  console.log('✅ Slash commands registered');
 
   // Load startup data
+  console.log('📂 Loading startup data...');
   await StartupLoader.load(client);
+  console.log('✅ Startup data loaded');
 
   // Set bot activity status
   client.user?.setPresence({
@@ -74,7 +91,7 @@ client.once('clientReady', async () => {
     status: 'online'
   });
 
-  console.log('\n✨ Bot is ready!\n');
+  console.log('\n✨ Bot is ready to handle tickets!\n');
 });
 
 // Event: Interaction Create
@@ -100,7 +117,6 @@ client.on('interactionCreate', async interaction => {
             await interaction.respond(choices);
           }
         } catch (error) {
-          console.error('Autocomplete error:', error);
           await interaction.respond([]).catch(() => {});
         }
       }
@@ -144,34 +160,31 @@ async function registerCommands(): Promise<void> {
 
     const rest = new REST({ version: '10' }).setToken(TOKEN!);
 
-    console.log('🔄 Registering slash commands...');
 
     await rest.put(Routes.applicationCommands(CLIENT_ID!), {
       body: commands,
     });
 
-    console.log('<:tcet_tick:1437995479567962184> Slash commands registered successfully');
   } catch (error) {
     ErrorHandler.handle(error as Error, 'Register commands');
   }
 }
 
 // Login
+console.log('🔐 Logging in to Discord...');
 client.login(TOKEN).catch(error => {
-  console.error('<:tcet_cross:1437995480754946178> Failed to login:', error);
+  console.error('❌ Failed to login:', error.message);
   process.exit(1);
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-  console.log('\n🛑 Shutting down gracefully...');
   client.db.close();
   client.destroy();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  console.log('\n🛑 Shutting down gracefully...');
   client.db.close();
   client.destroy();
   process.exit(0);

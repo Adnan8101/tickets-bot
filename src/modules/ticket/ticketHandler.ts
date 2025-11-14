@@ -64,7 +64,6 @@ export class TicketHandler implements InteractionHandler {
         const timeSinceLastOp = Date.now() - lastOp;
         if (timeSinceLastOp < minDelay) {
           const waitTime = minDelay - timeSinceLastOp;
-          console.log(`[RATE_LIMIT] Waiting ${waitTime}ms before ${operationName}`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
         }
       }
@@ -84,12 +83,9 @@ export class TicketHandler implements InteractionHandler {
       
       return { success: true, result };
     } catch (error: any) {
-      console.log(`[${operationName}] Operation failed:`, error);
       
       // Check if it's a rate limit error
       if (error.code === 50013 || error.code === 50035 || error.message?.includes('rate limit') || error.message?.includes('timed out')) {
-        console.log(`[${operationName}] RATE LIMIT HIT - Discord allows only 2 channel modifications per 10 minutes`);
-        console.log(`[${operationName}] Please wait before making more channel changes`);
       }
       
       return { success: false, result: null, error };
@@ -267,9 +263,6 @@ export class TicketHandler implements InteractionHandler {
 
       const channelName = `ticket-${user.username}`.toLowerCase().replace(/[^a-z0-9-]/g, '');
       
-      console.log(`[TICKET_CREATE] Creating ticket #${ticketNumber} for user ${user.tag} (${user.id})`);
-      console.log(`[TICKET_CREATE] Panel: ${panel.name} (${panelId})`);
-      console.log(`[TICKET_CREATE] Channel name: ${channelName}`);
       
       // Build permission overwrites
       const permissionOverwrites: any[] = [
@@ -308,8 +301,6 @@ export class TicketHandler implements InteractionHandler {
         },
       ];
 
-      console.log(`[TICKET_CREATE] ✅ Denied all permissions for @everyone`);
-      console.log(`[TICKET_CREATE] ✅ Granted full permissions to bot`);
 
       // Add user permissions
       const userPermissions = panel.userPermissions || [];
@@ -319,9 +310,7 @@ export class TicketHandler implements InteractionHandler {
           id: user.id,
           allow: userPerms,
         });
-        console.log(`[TICKET_CREATE] 👤 User permissions (${userPermissions.length} configured):`);
         userPermissions.forEach(perm => {
-          console.log(`[TICKET_CREATE]    ✓ ${perm}`);
         });
       } else {
         // Default user permissions if none specified
@@ -333,10 +322,6 @@ export class TicketHandler implements InteractionHandler {
             PermissionFlagsBits.ReadMessageHistory,
           ],
         });
-        console.log(`[TICKET_CREATE] 👤 User permissions (default - no custom permissions set):`);
-        console.log(`[TICKET_CREATE]    ✓ ViewChannel`);
-        console.log(`[TICKET_CREATE]    ✓ SendMessages`);
-        console.log(`[TICKET_CREATE]    ✓ ReadMessageHistory`);
       }
 
       // Add staff permissions
@@ -347,9 +332,7 @@ export class TicketHandler implements InteractionHandler {
           id: panel.staffRole,
           allow: staffPerms,
         });
-        console.log(`[TICKET_CREATE] 👥 Staff role permissions (${staffPermissions.length} configured):`);
         staffPermissions.forEach(perm => {
-          console.log(`[TICKET_CREATE]    ✓ ${perm}`);
         });
       } else {
         // Default staff permissions if none specified
@@ -362,14 +345,8 @@ export class TicketHandler implements InteractionHandler {
             PermissionFlagsBits.ManageMessages,
           ],
         });
-        console.log(`[TICKET_CREATE] 👥 Staff role permissions (default - no custom permissions set):`);
-        console.log(`[TICKET_CREATE]    ✓ ViewChannel`);
-        console.log(`[TICKET_CREATE]    ✓ SendMessages`);
-        console.log(`[TICKET_CREATE]    ✓ ReadMessageHistory`);
-        console.log(`[TICKET_CREATE]    ✓ ManageMessages`);
       }
       
-      console.log(`[TICKET_CREATE] 🔨 Creating channel in category ${panel.openCategory}...`);
       const channel = await guild.channels.create({
         name: channelName,
         type: ChannelType.GuildText,
@@ -378,12 +355,6 @@ export class TicketHandler implements InteractionHandler {
         permissionOverwrites,
       });
 
-      console.log(`[TICKET_CREATE] ✅ Channel created successfully: ${channel.name} (${channel.id})`);
-      console.log(`[TICKET_CREATE] 📊 Permission Summary:`);
-      console.log(`[TICKET_CREATE]    • @everyone: ALL DENIED`);
-      console.log(`[TICKET_CREATE]    • Bot: FULL ACCESS`);
-      console.log(`[TICKET_CREATE]    • User ${user.tag}: ${userPermissions.length || 3} permissions granted`);
-      console.log(`[TICKET_CREATE]    • Staff Role: ${staffPermissions.length || 4} permissions granted`);
 
       const ticket: TicketData = {
         id: ticketId,
@@ -426,10 +397,6 @@ export class TicketHandler implements InteractionHandler {
       ticket.welcomeMessageId = welcomeMsg.id;
       await client.db.save(ticket);
 
-      console.log(`[TICKET_CREATE] 💬 Welcome message sent (${welcomeMsg.id})`);
-      console.log(`[TICKET_CREATE] 💬 Buttons: Close button only (ticket is open)`);
-      console.log(`[TICKET_CREATE] 💾 Ticket data saved to database`);
-      console.log(`[TICKET_CREATE] 🎫 Ticket #${ticketNumber} creation complete!`);
 
       if (panel.logsChannel) {
         try {
@@ -464,14 +431,9 @@ export class TicketHandler implements InteractionHandler {
   }
 
   async closeTicket(interaction: any, client: BotClient, ticketId: string): Promise<void> {
-    console.log(`[CLOSE] ========================================`);
-    console.log(`[CLOSE] Starting close process for ticket: ${ticketId}`);
-    console.log(`[CLOSE] Triggered by user: ${interaction.user?.tag} (${interaction.user?.id})`);
-    console.log(`[CLOSE] ========================================`);
     
     const ticket = await client.db.get<TicketData>(ticketId);
     if (!ticket) {
-      console.log(`[CLOSE] Ticket not found: ${ticketId}`);
       // Always use followUp with ephemeral for error messages (interaction may be deferred by router)
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp({
@@ -487,12 +449,10 @@ export class TicketHandler implements InteractionHandler {
       return;
     }
 
-    console.log(`[CLOSE] Ticket found - State: ${ticket.state}, Welcome Message ID: ${ticket.welcomeMessageId}`);
     
     // Check if ticket is already closed to prevent duplicate operations
     const currentState = ticket.state as string;
     if (currentState === 'closed') {
-      console.log(`[CLOSE] Ticket is already closed, aborting duplicate request`);
       // Always use followUp with ephemeral for error messages (interaction may be deferred by router)
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp({
@@ -510,7 +470,6 @@ export class TicketHandler implements InteractionHandler {
 
     const panel = await client.db.get<PanelData>(ticket.panelId);
     if (!panel) {
-      console.log(`[CLOSE] Panel not found: ${ticket.panelId}`);
       // Always use followUp with ephemeral for error messages (interaction may be deferred by router)
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp({
@@ -533,7 +492,6 @@ export class TicketHandler implements InteractionHandler {
     
     // Check permission based on allowOwnerClose setting
     if (isOwner && panel.allowOwnerClose === false && !isStaff) {
-      console.log(`[CLOSE] Owner attempted to close but allowOwnerClose is false`);
       // Always use followUp with ephemeral for error messages (interaction may be deferred by router)
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp({
@@ -557,7 +515,6 @@ export class TicketHandler implements InteractionHandler {
     try {
       const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
       if (!channel || channel.type !== ChannelType.GuildText) {
-        console.log(`[CLOSE] Channel not found or invalid type: ${ticket.channelId}`);
         await interaction.followUp({
           content: '<:tcet_cross:1437995480754946178> Ticket channel not found.',
           flags: 1 << 6 // MessageFlags.Ephemeral
@@ -565,7 +522,6 @@ export class TicketHandler implements InteractionHandler {
         return;
       }
 
-      console.log(`[CLOSE] Channel found: ${channel.name}`);
 
       // NOTE: We do NOT delete messages anymore to preserve full transcript
       // All messages will be kept for the transcript generation
@@ -578,13 +534,6 @@ export class TicketHandler implements InteractionHandler {
       } else {
         newName = `closed-${channel.name}`;
       }
-      console.log(`[CLOSE] Renaming channel from "${channel.name}" to "${newName}"`);
-      console.log(`[CLOSE] Channel details:`, JSON.stringify({ 
-        id: channel.id, 
-        name: channel.name, 
-        type: channel.type,
-        parentId: channel.parentId 
-      }));
       
       // Use safe channel operations with rate limit protection
       const renameResult = await this.safeChannelOperation(
@@ -594,15 +543,11 @@ export class TicketHandler implements InteractionHandler {
       );
       
       if (renameResult.success) {
-        console.log(`[CLOSE] Channel renamed successfully to "${newName}"`);
       } else {
-        console.log(`[CLOSE] Channel rename failed, continuing anyway...`);
-        console.log(`[CLOSE] Rename error:`, renameResult.error);
       }
       
       let moveSuccess = true;
       if (panel.closeCategory) {
-        console.log(`[CLOSE] Moving to close category: ${panel.closeCategory}`);
         const moveResult = await this.safeChannelOperation(
           channel.id,
           () => channel.setParent(panel.closeCategory!),
@@ -611,32 +556,23 @@ export class TicketHandler implements InteractionHandler {
         );
         
         if (moveResult.success) {
-          console.log(`[CLOSE] Channel moved to close category successfully`);
         } else {
-          console.log(`[CLOSE] Channel move failed, continuing anyway...`);
-          console.log(`[CLOSE] Move error:`, moveResult.error);
           moveSuccess = false;
         }
       }
 
       // Remove user permissions (hide from user) but keep everything else
-      console.log(`[CLOSE] Removing user permissions from channel...`);
       try {
         await channel.permissionOverwrites.delete(ticket.owner);
-        console.log(`[CLOSE] User permissions removed successfully`);
       } catch (error) {
-        console.log(`[CLOSE] Failed to remove user permissions:`, error);
       }
 
       ticket.state = 'closed';
       ticket.closedAt = new Date().toISOString();
       await client.db.save(ticket);
-      console.log(`[CLOSE] Ticket state saved as closed`);
 
       // Update welcome message to show closed state
-      console.log(`[CLOSE] Updating welcome message...`);
       await this.updateWelcomeMessageForClosed(channel, ticket, interaction.user.id, client.user?.username);
-      console.log(`[CLOSE] Welcome message updated`);
 
       // Send "Closing ticket" message
       const closeEmbed = new EmbedBuilder()
@@ -666,7 +602,6 @@ export class TicketHandler implements InteractionHandler {
         flags: 1 << 6 // MessageFlags.Ephemeral
       });
 
-      console.log(`[CLOSE] Logging to logs channel...`);
       if (panel.logsChannel) {
         try {
           const logChannel = await client.channels.fetch(panel.logsChannel);
@@ -689,7 +624,6 @@ export class TicketHandler implements InteractionHandler {
         }
       }
 
-      console.log(`[CLOSE] Starting transcript generation...`);
       setImmediate(async () => {
         try {
           if (channel instanceof TextChannel) {
@@ -700,9 +634,7 @@ export class TicketHandler implements InteractionHandler {
         }
       });
       
-      console.log(`[CLOSE] Close process complete for ticket: ${ticketId}`);
     } catch (error) {
-      console.log(`[CLOSE] Error during close:`, error);
       ErrorHandler.handle(error as Error, 'Close ticket');
       await interaction.followUp({
         content: '<:tcet_cross:1437995480754946178> Failed to close ticket. Please try again.',
@@ -712,14 +644,9 @@ export class TicketHandler implements InteractionHandler {
   }
 
   async reopenTicket(interaction: any, client: BotClient, ticketId: string): Promise<void> {
-    console.log(`[REOPEN] ========================================`);
-    console.log(`[REOPEN] Starting reopen process for ticket: ${ticketId}`);
-    console.log(`[REOPEN] Triggered by user: ${interaction.user?.tag} (${interaction.user?.id})`);
-    console.log(`[REOPEN] ========================================`);
     
     const ticket = await client.db.get<TicketData>(ticketId);
     if (!ticket) {
-      console.log(`[REOPEN] Ticket not found: ${ticketId}`);
       // Use editReply if already deferred (by router), otherwise reply
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp({
@@ -735,11 +662,9 @@ export class TicketHandler implements InteractionHandler {
       return;
     }
 
-    console.log(`[REOPEN] Ticket found - State: ${ticket.state}, Welcome Message ID: ${ticket.welcomeMessageId}`);
 
     // Check if ticket is already open
     if (ticket.state === 'open') {
-      console.log(`[REOPEN] Ticket is already open, aborting`);
       // Use editReply if already deferred (by router), otherwise reply
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp({
@@ -757,7 +682,6 @@ export class TicketHandler implements InteractionHandler {
 
     const panel = await client.db.get<PanelData>(ticket.panelId);
     if (!panel) {
-      console.log(`[REOPEN] Panel not found: ${ticket.panelId}`);
       // Use editReply if already deferred (by router), otherwise reply
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp({
@@ -781,7 +705,6 @@ export class TicketHandler implements InteractionHandler {
     try {
       const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
       if (!channel || channel.type !== ChannelType.GuildText) {
-        console.log(`[REOPEN] Channel not found or invalid type: ${ticket.channelId}`);
         await interaction.followUp({
           content: '<:tcet_cross:1437995480754946178> Ticket channel not found.',
           flags: 1 << 6 // MessageFlags.Ephemeral
@@ -789,7 +712,6 @@ export class TicketHandler implements InteractionHandler {
         return;
       }
 
-      console.log(`[REOPEN] Channel found: ${channel.name}`);
 
       let newName: string;
       if (channel.name.startsWith('closed-claimed-')) {
@@ -801,13 +723,6 @@ export class TicketHandler implements InteractionHandler {
       } else {
         newName = channel.name.startsWith('ticket-') ? channel.name : `ticket-${channel.name}`;
       }
-      console.log(`[REOPEN] Renaming channel from "${channel.name}" to "${newName}"`);
-      console.log(`[REOPEN] Channel details:`, JSON.stringify({ 
-        id: channel.id, 
-        name: channel.name, 
-        type: channel.type,
-        parentId: channel.parentId 
-      }));
       
       // Use safe channel operations with rate limit protection
       const renameResult = await this.safeChannelOperation(
@@ -817,15 +732,11 @@ export class TicketHandler implements InteractionHandler {
       );
       
       if (renameResult.success) {
-        console.log(`[REOPEN] Channel renamed successfully to "${newName}"`);
       } else {
-        console.log(`[REOPEN] Channel rename failed, continuing anyway...`);
-        console.log(`[REOPEN] Rename error:`, renameResult.error);
       }
       
       let moveSuccess = true;
       if (panel.openCategory) {
-        console.log(`[REOPEN] Moving to open category: ${panel.openCategory}`);
         const moveResult = await this.safeChannelOperation(
           channel.id,
           () => channel.setParent(panel.openCategory!),
@@ -834,16 +745,12 @@ export class TicketHandler implements InteractionHandler {
         );
         
         if (moveResult.success) {
-          console.log(`[REOPEN] Channel moved to open category successfully`);
         } else {
-          console.log(`[REOPEN] Channel move failed, continuing anyway...`);
-          console.log(`[REOPEN] Move error:`, moveResult.error);
           moveSuccess = false;
         }
       }
 
       // Restore user permissions
-      console.log(`[REOPEN] Restoring user permissions to channel...`);
       try {
         const userPermissions = panel.userPermissions || [];
         if (userPermissions.length > 0) {
@@ -864,7 +771,6 @@ export class TicketHandler implements InteractionHandler {
             SendMessagesInThreads: userPerms.includes(PermissionFlagsBits.SendMessagesInThreads) ? true : null,
             UseApplicationCommands: userPerms.includes(PermissionFlagsBits.UseApplicationCommands) ? true : null,
           });
-          console.log(`[REOPEN] User permissions restored (${userPermissions.length} permissions)`);
         } else {
           // Default permissions if none configured
           await channel.permissionOverwrites.create(ticket.owner, {
@@ -872,22 +778,17 @@ export class TicketHandler implements InteractionHandler {
             SendMessages: true,
             ReadMessageHistory: true,
           });
-          console.log(`[REOPEN] User permissions restored (default permissions)`);
         }
       } catch (error) {
-        console.log(`[REOPEN] Failed to restore user permissions:`, error);
       }
 
       ticket.state = 'open';
       ticket.closedAt = undefined;
       ticket.closeMessageId = undefined;
       await client.db.save(ticket);
-      console.log(`[REOPEN] Ticket state saved as open, welcome message ID preserved: ${ticket.welcomeMessageId}`);
 
       // Update welcome message with open buttons
-      console.log(`[REOPEN] Updating welcome message buttons...`);
       await this.updateWelcomeMessageButtons(channel, ticket, panel);
-      console.log(`[REOPEN] Welcome message buttons updated`);
 
       // Send "Reopening ticket" message
       const reopenEmbed = new EmbedBuilder()
@@ -940,9 +841,7 @@ export class TicketHandler implements InteractionHandler {
         }
       }
       
-      console.log(`[REOPEN] Reopen process complete for ticket: ${ticketId}`);
     } catch (error) {
-      console.log(`[REOPEN] Error during reopen:`, error);
       ErrorHandler.handle(error as Error, 'Reopen ticket');
       await interaction.followUp({
         content: '<:tcet_cross:1437995480754946178> Failed to reopen ticket. Please try again.',
@@ -1037,9 +936,7 @@ export class TicketHandler implements InteractionHandler {
           const newName = `claimed-${interaction.user.username}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
           try {
             await channel.setName(newName);
-            console.log(`[CLAIM] Channel renamed to: ${newName}`);
           } catch (error) {
-            console.log(`[CLAIM] Failed to rename channel:`, error);
           }
         }
 
@@ -1157,9 +1054,7 @@ export class TicketHandler implements InteractionHandler {
           const newName = `ticket-${owner.username}`.toLowerCase().replace(/[^a-z0-9-]/g, '-');
           try {
             await channel.setName(newName);
-            console.log(`[UNCLAIM] Channel renamed to: ${newName}`);
           } catch (error) {
-            console.log(`[UNCLAIM] Failed to rename channel:`, error);
           }
         }
 
@@ -1285,7 +1180,6 @@ export class TicketHandler implements InteractionHandler {
           staffName = staff.username;
           staffId = staff.id;
         } catch (error) {
-          console.warn('Could not fetch staff user');
         }
       }
 
@@ -1424,7 +1318,6 @@ export class TicketHandler implements InteractionHandler {
           staffName = staff.username;
           staffId = staff.id;
         } catch (error) {
-          console.warn('Could not fetch staff user');
         }
       }
 
@@ -1513,46 +1406,36 @@ export class TicketHandler implements InteractionHandler {
 
   private async cleanupTicketMessages(channel: any, ticket: TicketData): Promise<void> {
     try {
-      console.log(`[CLEANUP] Starting message cleanup for ticket ${ticket.id}`);
-      console.log(`[CLEANUP] Welcome message ID to preserve: ${ticket.welcomeMessageId}`);
       
       // Fetch all messages in the channel
       const messages = await channel.messages.fetch({ limit: 100 });
-      console.log(`[CLEANUP] Fetched ${messages.size} messages from channel`);
       
       // Filter messages to delete (all except the welcome message)
       const messagesToDelete = messages.filter((msg: any) => {
         // Keep the welcome message
         if (ticket.welcomeMessageId && msg.id === ticket.welcomeMessageId) {
-          console.log(`[CLEANUP] Preserving welcome message: ${msg.id}`);
           return false;
         }
         // Keep messages older than 14 days (can't bulk delete those)
         const messageAge = Date.now() - msg.createdTimestamp;
         if (messageAge > 14 * 24 * 60 * 60 * 1000) {
-          console.log(`[CLEANUP] Skipping old message (>14 days): ${msg.id}`);
           return false;
         }
         return true;
       });
 
-      console.log(`[CLEANUP] Messages to delete: ${messagesToDelete.size}`);
       
       // Bulk delete messages (max 100 at a time)
       if (messagesToDelete.size > 0) {
         await channel.bulkDelete(messagesToDelete, true).catch(() => {
-          console.log(`[CLEANUP] Bulk delete failed, trying individual deletion`);
           // If bulk delete fails, try individual deletion
           messagesToDelete.forEach(async (msg: any) => {
             await msg.delete().catch(() => {});
           });
         });
-        console.log(`[CLEANUP] Deleted ${messagesToDelete.size} messages`);
       }
       
-      console.log(`[CLEANUP] Cleanup complete`);
     } catch (error) {
-      console.log(`[CLEANUP] Error during cleanup:`, error);
       // Silently handle cleanup errors
       ErrorHandler.warn('Could not cleanup ticket messages');
     }
@@ -1560,64 +1443,48 @@ export class TicketHandler implements InteractionHandler {
 
   private async updateWelcomeMessageButtons(channel: any, ticket: TicketData, panel: PanelData): Promise<void> {
     try {
-      console.log(`[UPDATE_BUTTONS] Attempting to update buttons for ticket ${ticket.id}`);
-      console.log(`[UPDATE_BUTTONS] Welcome message ID: ${ticket.welcomeMessageId}`);
       
       if (!ticket.welcomeMessageId) {
-        console.log(`[UPDATE_BUTTONS] No welcome message ID found, skipping update`);
         return;
       }
       
       const welcomeMsg = await channel.messages.fetch(ticket.welcomeMessageId).catch((err: any) => {
-        console.log(`[UPDATE_BUTTONS] Failed to fetch welcome message:`, err.message);
         return null;
       });
       
       if (!welcomeMsg) {
-        console.log(`[UPDATE_BUTTONS] Welcome message not found in channel`);
         return;
       }
 
-      console.log(`[UPDATE_BUTTONS] Welcome message found, updating to open buttons`);
       // Update with open ticket buttons
       const buttons = this.createTicketButtons(ticket.id, panel);
       await welcomeMsg.edit({ components: buttons }).catch((err: any) => {
-        console.log(`[UPDATE_BUTTONS] Failed to edit message:`, err.message);
       });
-      console.log(`[UPDATE_BUTTONS] Buttons updated successfully`);
     } catch (error) {
-      console.log(`[UPDATE_BUTTONS] Error updating welcome message buttons:`, error);
       ErrorHandler.warn('Could not update welcome message buttons');
     }
   }
 
   private async updateWelcomeMessageForClosed(channel: any, ticket: TicketData, closedByUserId: string, botUsername?: string): Promise<void> {
     try {
-      console.log(`[UPDATE_CLOSED] Attempting to update for closed state, ticket ${ticket.id}`);
-      console.log(`[UPDATE_CLOSED] Welcome message ID: ${ticket.welcomeMessageId}`);
       
       if (!ticket.welcomeMessageId) {
-        console.log(`[UPDATE_CLOSED] No welcome message ID found, skipping update`);
         return;
       }
       
       const welcomeMsg = await channel.messages.fetch(ticket.welcomeMessageId).catch((err: any) => {
-        console.log(`[UPDATE_CLOSED] Failed to fetch welcome message:`, err.message);
         return null;
       });
       
       if (!welcomeMsg) {
-        console.log(`[UPDATE_CLOSED] Welcome message not found in channel`);
         return;
       }
 
-      console.log(`[UPDATE_CLOSED] Welcome message found, updating to closed buttons`);
       // Update welcome message with closed buttons
       const closedButtons = this.createClosedTicketButtons(ticket.id);
       
       // Get the existing embeds and update them
       const existingEmbeds = welcomeMsg.embeds;
-      console.log(`[UPDATE_CLOSED] Found ${existingEmbeds.length} embeds`);
       
       if (existingEmbeds.length > 0) {
         const embed = EmbedBuilder.from(existingEmbeds[0]);
@@ -1627,16 +1494,12 @@ export class TicketHandler implements InteractionHandler {
           embeds: [embed],
           components: closedButtons 
         }).catch((err: any) => {
-          console.log(`[UPDATE_CLOSED] Failed to edit message with embed:`, err.message);
         });
       } else {
         await welcomeMsg.edit({ components: closedButtons }).catch((err: any) => {
-          console.log(`[UPDATE_CLOSED] Failed to edit message without embed:`, err.message);
         });
       }
-      console.log(`[UPDATE_CLOSED] Message updated successfully`);
     } catch (error) {
-      console.log(`[UPDATE_CLOSED] Error updating welcome message for closed state:`, error);
       ErrorHandler.warn('Could not update welcome message for closed state');
     }
   }
@@ -1665,7 +1528,6 @@ export class TicketHandler implements InteractionHandler {
           deletedChannels++;
         }
       } catch (error) {
-        console.warn(`Could not delete channel ${ticket.channelId}:`, error);
       }
 
       // Delete ticket data from database
@@ -1706,7 +1568,6 @@ export class TicketHandler implements InteractionHandler {
           deletedChannels++;
         }
       } catch (error) {
-        console.warn(`Could not delete channel ${ticket.channelId}:`, error);
       }
 
       // Delete ticket data from database

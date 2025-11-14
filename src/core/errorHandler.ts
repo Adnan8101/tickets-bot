@@ -5,8 +5,6 @@ export class ErrorHandler {
    * Handle and log errors globally
    */
   static handle(error: Error, context?: string): void {
-    console.error(`[ERROR]${context ? ` ${context}:` : ''}`);
-    console.error(error);
   }
 
   /**
@@ -31,7 +29,6 @@ export class ErrorHandler {
         }
       }
     } catch (error) {
-      console.error('Error sending error message:', error);
     }
   }
 
@@ -39,13 +36,11 @@ export class ErrorHandler {
    * Log info message
    */
   static info(message: string): void {
-    console.log(`[INFO] ${message}`);
   }
 
   /**
    * Log warning message
    */
   static warn(message: string): void {
-    console.warn(`[WARN] ${message}`);
   }
 }

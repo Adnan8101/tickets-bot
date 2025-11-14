@@ -53,7 +53,6 @@ export class SetupWizardHandler implements InteractionHandler {
         button.setEmoji(emoji);
       }
     } catch (error) {
-      console.warn(`Failed to set emoji "${emoji}":`, error);
       // If setting emoji fails, just continue without it
     }
 
@@ -1305,7 +1304,6 @@ export class SetupWizardHandler implements InteractionHandler {
       }, 1500);
 
     } catch (error) {
-      console.error('Failed to steal emoji:', error);
       await interaction.editReply({
         content: '<:tcet_cross:1437995480754946178> Failed to upload emoji. Make sure I have permission to manage emojis.',
         embeds: [],

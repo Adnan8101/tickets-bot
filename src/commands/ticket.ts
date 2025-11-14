@@ -388,7 +388,6 @@ async function handleDeleteTicket(
           staffName = staff.username;
           staffId = staff.id;
         } catch (error) {
-          console.warn('Could not fetch staff user');
         }
       }
 
@@ -419,7 +418,6 @@ async function handleDeleteTicket(
             });
           }
         } catch (error) {
-          console.error('Failed to send transcript:', error);
         }
       }
 
@@ -431,7 +429,6 @@ async function handleDeleteTicket(
           files: [attachment],
         });
       } catch (error) {
-        console.warn('Could not DM transcript to ticket owner');
       }
     }
 
@@ -455,7 +452,6 @@ async function handleDeleteTicket(
           await logChannel.send({ embeds: [logEmbed] });
         }
       } catch (error) {
-        console.error('Failed to log ticket deletion:', error);
       }
     }
 
@@ -473,7 +469,6 @@ async function handleDeleteTicket(
     // Delete channel
     await channel.delete();
   } catch (error) {
-    console.error('Failed to delete ticket:', error);
     await interaction.editReply({
       content: '<:tcet_cross:1437995480754946178> Failed to delete ticket. Please try again or delete the channel manually.',
     }).catch(() => {});
@@ -626,7 +621,6 @@ async function handleRename(
             await logChannel.send({ embeds: [logEmbed] });
           }
         } catch (error) {
-          console.error('Failed to log rename:', error);
         }
       }
       
@@ -781,7 +775,6 @@ async function handleClaim(
       await channel.setName(newName);
     }
   } catch (error) {
-    console.error('Failed to rename channel:', error);
   }
 
   // Send success embed (ephemeral to claimer)

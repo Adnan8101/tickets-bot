@@ -65,10 +65,8 @@ export class InteractionRouter {
       if (handler) {
         await handler.execute(interaction, client, parts);
       } else {
-        console.warn(`No handler found for system: ${system}`);
       }
     } catch (error) {
-      console.error('Error routing interaction:', error);
       
       // Try to send error message
       try {
@@ -82,7 +80,6 @@ export class InteractionRouter {
           }
         }
       } catch (replyError) {
-        console.error('Error sending error message:', replyError);
       }
     }
   }

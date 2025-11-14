@@ -84,8 +84,6 @@ class PostgresDB {
     if (!dbUrl) {
       throw new Error('DATABASE_URL environment variable is required for PostgreSQL connection');
     }
-
-    console.log('🔌 Initializing PostgreSQL connection to Google Cloud Database...');
     
     // Remove sslmode from connection string and handle SSL explicitly
     const cleanUrl = dbUrl.replace(/[?&]sslmode=[^&]*/g, '');
@@ -105,13 +103,12 @@ class PostgresDB {
 
     // Add error handler for pool
     this.pool.on('error', (err) => {
-      console.error('❌ Unexpected error on idle PostgreSQL client:', err);
+      // Silent error handling
     });
 
     // Test connection and initialize (non-blocking)
     this.initializeDatabase().catch(err => {
-      console.error('❌ Failed to initialize PostgreSQL database:');
-      console.error(err);
+      console.error('Database initialization error:', err.message);
     });
   }
 
@@ -121,11 +118,7 @@ class PostgresDB {
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        console.log(`📊 Connecting to PostgreSQL database... (Attempt ${attempt}/${retries})`);
         client = await this.pool.connect();
-        
-        console.log('✅ Connected to Google Cloud PostgreSQL Database successfully!');
-        console.log('🗄️  Creating tables if they don\'t exist...');
         
         const createTable = `
           CREATE TABLE IF NOT EXISTS data (
@@ -145,26 +138,16 @@ class PostgresDB {
         await client.query(createTable);
         await client.query(createIndexes);
         
-        console.log('✅ Database tables and indexes created successfully');
-        
         this.isConnected = true;
-        
-        // Log connection info (without sensitive data)
-        const result = await client.query('SELECT version()');
-        console.log('📌 PostgreSQL Version:', result.rows[0].version.split(',')[0]);
-        
-        const countResult = await client.query('SELECT COUNT(*) as count FROM data');
-        console.log('📦 Total records in database:', countResult.rows[0].count);
+        console.log('✅ Database tables initialized');
         
         return; // Success, exit retry loop
         
       } catch (error: any) {
         lastError = error;
-        console.error(`❌ Connection attempt ${attempt}/${retries} failed:`, error.message);
         
         if (attempt < retries) {
           const waitTime = attempt * 2000; // Exponential backoff
-          console.log(`⏳ Retrying in ${waitTime/1000} seconds...`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
         }
       } finally {
@@ -176,12 +159,6 @@ class PostgresDB {
     }
 
     // All retries failed
-    console.error('❌ Failed to initialize PostgreSQL database after', retries, 'attempts');
-    console.error('💡 Troubleshooting tips:');
-    console.error('  1. Check if your IP address is whitelisted in Google Cloud SQL');
-    console.error('  2. Verify the DATABASE_URL in your .env file');
-    console.error('  3. Ensure the database instance is running');
-    console.error('  4. Check your network connection');
     throw lastError;
   }
 
@@ -208,7 +185,6 @@ class PostgresDB {
    */
   async save<T extends StoredData>(data: T): Promise<void> {
     if (!this.isConnected) {
-      console.warn('⚠️  Database not connected, attempting to reconnect...');
       const connected = await this.waitForConnection(5000);
       if (!connected) {
         throw new Error('Database connection not available');
@@ -226,7 +202,6 @@ class PostgresDB {
         [data.id, data.type, JSON.stringify(data), now]
       );
     } catch (error: any) {
-      console.error('❌ Error saving data:', error.message);
       throw error;
     } finally {
       client.release();
@@ -238,7 +213,6 @@ class PostgresDB {
    */
   async get<T extends StoredData>(id: string): Promise<T | null> {
     if (!this.isConnected) {
-      console.warn('⚠️  Database not connected, attempting to reconnect...');
       const connected = await this.waitForConnection(5000);
       if (!connected) {
         throw new Error('Database connection not available');
@@ -258,7 +232,6 @@ class PostgresDB {
       // data is already parsed as JSONB from PostgreSQL
       return typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
     } catch (error: any) {
-      console.error('❌ Error getting data:', error.message);
       throw error;
     } finally {
       client.release();
@@ -281,7 +254,6 @@ class PostgresDB {
         return typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
       });
     } catch (error: any) {
-      console.error('❌ Error getting data by type:', error.message);
       throw error;
     } finally {
       client.release();
@@ -296,7 +268,6 @@ class PostgresDB {
     try {
       await client.query('DELETE FROM data WHERE id = $1', [id]);
     } catch (error: any) {
-      console.error('❌ Error deleting data:', error.message);
       throw error;
     } finally {
       client.release();
@@ -363,9 +334,7 @@ class PostgresDB {
    * Close database connection pool
    */
   async close(): Promise<void> {
-    console.log('🔌 Closing PostgreSQL connection pool...');
     await this.pool.end();
-    console.log('✅ PostgreSQL connection pool closed');
   }
 
   /**

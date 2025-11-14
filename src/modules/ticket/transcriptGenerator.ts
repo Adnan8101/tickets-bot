@@ -27,8 +27,6 @@ export async function generateProfessionalTranscript(
     panelName,
   } = options;
 
-  console.log(`[TRANSCRIPT] Generating professional transcript for ticket #${ticketNumber}`);
-  console.log(`[TRANSCRIPT] Channel: ${channel.name} (${channel.id})`);
 
   // Generate the transcript with ALL messages - 100% Discord clone
   // This captures:
@@ -46,7 +44,6 @@ export async function generateProfessionalTranscript(
     footerText: `Ticket #${ticketNumber} | ${panelName}`,
   }) as AttachmentBuilder;
 
-  console.log(`[TRANSCRIPT] Transcript generated successfully`);
 
   return attachment;
 }

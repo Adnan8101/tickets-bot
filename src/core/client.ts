@@ -23,7 +23,6 @@ export function createClient(): BotClient {
   }) as BotClient;
 
   // Initialize PostgreSQL cloud database
-  console.log('🔌 Connecting to Google Cloud PostgreSQL Database...');
   client.db = new PostgresDB();
   
   // Initialize commands collection

@@ -54,7 +54,6 @@ export async function execute(interaction: ChatInputCommandInteraction, client: 
 
     await interaction.reply({ embeds: [embed], ephemeral: false });
   } catch (error) {
-    console.error('Error in setprefix command:', error);
     await interaction.reply({
       content: '<:tcet_cross:1437995480754946178> An error occurred while setting the prefix.',
       ephemeral: true,

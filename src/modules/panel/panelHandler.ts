@@ -57,7 +57,6 @@ export class PanelHandler implements InteractionHandler {
         await client.db.delete(templateId);
         deletedCount++;
       } catch (error) {
-        console.warn(`Could not delete template ${templateId}:`, error);
       }
     }
 
@@ -99,7 +98,6 @@ export class PanelHandler implements InteractionHandler {
         await client.db.delete(template.id);
         deletedCount++;
       } catch (error) {
-        console.warn(`Could not delete template ${template.id}:`, error);
       }
     }
 

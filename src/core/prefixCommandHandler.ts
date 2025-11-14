@@ -73,7 +73,6 @@ export class PrefixCommandHandler {
           break;
       }
     } catch (error) {
-      console.error('Error handling prefix command:', error);
       await message.reply({
         content: '<:tcet_cross:1437995480754946178> An error occurred while executing the command.',
       }).catch(() => {});
