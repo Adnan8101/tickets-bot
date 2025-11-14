@@ -93,35 +93,70 @@ async function getDatabaseStats(client: BotClient): Promise<{
     const closedTickets = parseInt(closedTicketsResult.rows[0].count);
    
 
-    // Get database size and total available storage
+    // Get database size
     const sizeResult = await pool.query(`
       SELECT pg_size_pretty(pg_database_size(current_database())) as size
     `);
     const storage = sizeResult.rows[0].size;
     
-    // Get total available storage (works for Cloud SQL and other PostgreSQL instances)
+    // Get total available storage (disk allocation)
     let totalStorage = 'N/A';
     try {
-      // Try to get total tablespace size
-      const tsResult = await pool.query(`
-        SELECT pg_size_pretty(sum(pg_tablespace_size(oid))::bigint) as total_size
-        FROM pg_tablespace
+      // Try to get actual disk space information
+      const diskResult = await pool.query(`
+        SELECT 
+          pg_size_pretty(
+            (SELECT sum(pg_database_size(datname))::bigint FROM pg_database) +
+            (SELECT sum(pg_tablespace_size(oid))::bigint FROM pg_tablespace)
+          ) as total_used,
+          pg_size_pretty(
+            (SELECT setting::bigint FROM pg_settings WHERE name = 'max_wal_size') * 16 * 1024 * 1024
+          ) as wal_size
       `);
       
-      if (tsResult.rows[0].total_size) {
-        totalStorage = tsResult.rows[0].total_size;
+      // Try alternative method: get from pg_stat_file (requires superuser on some systems)
+      try {
+        const fsResult = await pool.query(`
+          SELECT 
+            (pg_stat_file('base')).size as base_size,
+            (pg_stat_file('global')).size as global_size
+        `);
+        // This won't work on Cloud SQL due to permissions
+      } catch (e) {
+        // Expected to fail on Cloud SQL
       }
+      
+      // For Cloud SQL, query the actual allocated space via pg_ls_waldir and calculate
+      const walResult = await pool.query(`
+        SELECT 
+          COALESCE(sum(size), 0) as wal_size 
+        FROM pg_ls_waldir()
+      `);
+      
+      const allDbSize = await pool.query(`
+        SELECT pg_size_pretty(sum(pg_database_size(datname))::bigint) as all_db_size
+        FROM pg_database
+        WHERE datistemplate = false
+      `);
+      
+      // Get total space used by all objects
+      const totalUsed = await pool.query(`
+        SELECT pg_size_pretty(
+          (SELECT sum(pg_database_size(datname))::bigint FROM pg_database WHERE datistemplate = false) +
+          ${walResult.rows[0].wal_size}
+        ) as total_disk_usage
+      `);
+      
+      totalStorage = totalUsed.rows[0].total_disk_usage || allDbSize.rows[0].all_db_size;
+      
     } catch (e) {
-      // Fallback: Calculate from all databases
+      // Final fallback: sum all database sizes
       try {
         const allDbResult = await pool.query(`
-          SELECT pg_size_pretty(sum(pg_database_size(datname))::bigint) as total_used
+          SELECT pg_size_pretty(sum(pg_database_size(datname))::bigint) as total_size
           FROM pg_database
-          WHERE datistemplate = false
         `);
-        if (allDbResult.rows[0].total_used) {
-          totalStorage = `${allDbResult.rows[0].total_used} (used across all DBs)`;
-        }
+        totalStorage = allDbResult.rows[0].total_size;
       } catch (e2) {
         totalStorage = 'Unable to determine';
       }
