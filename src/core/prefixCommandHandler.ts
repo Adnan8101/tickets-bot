@@ -428,14 +428,10 @@ export class PrefixCommandHandler {
    * Handle ping command
    */
   private async handlePing(message: Message, client: BotClient): Promise<void> {
-    const wsLatency = client.ws.ping;
-    
-    // If ws.ping is -1 or invalid, use a default message
-    if (wsLatency <= 0) {
-      await message.reply('🏓 Pong: Calculating...');
-    } else {
-      await message.reply(`🏓 Pong: ${Math.round(wsLatency)}ms`);
-    }
+    const sent = await message.reply('🏓 Pinging...');
+    const latency = sent.createdTimestamp - message.createdTimestamp;
+    const apiPing = Math.round(client.ws.ping);
+    await sent.edit(`🏓 Pong!\n- Latency: ${latency}ms\n- API Ping: ${apiPing}ms`);
   }
 
   /**
