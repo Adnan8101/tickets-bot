@@ -59,39 +59,22 @@ async function getDatabaseStats(client: BotClient): Promise<{
 
     const pool = client.db.getPool();
     
-    
-    // Get total records
-    
-    const countResult = await pool.query('SELECT COUNT(*) as count FROM data');
-    const totalRecords = parseInt(countResult.rows[0].count);
-   
-
-    // Get panels count
-   
-    const panelsResult = await pool.query("SELECT COUNT(*) as count FROM data WHERE type = 'panel'");
-    const panels = parseInt(panelsResult.rows[0].count);
-   
-
-    // Get tickets count
-   
-    const ticketsResult = await pool.query("SELECT COUNT(*) as count FROM data WHERE type = 'ticket'");
-    const tickets = parseInt(ticketsResult.rows[0].count);
-    ;
-
-    // Get open/closed tickets
-   
-    const openTicketsResult = await pool.query(`
-      SELECT COUNT(*) as count FROM data 
-      WHERE type = 'ticket' AND data->>'state' = 'open'
+    // OPTIMIZED: Single query to get all counts at once
+    const statsResult = await pool.query(`
+      SELECT 
+        COUNT(*) FILTER (WHERE type IS NOT NULL) as total_records,
+        COUNT(*) FILTER (WHERE type = 'panel') as panels,
+        COUNT(*) FILTER (WHERE type = 'ticket') as tickets,
+        COUNT(*) FILTER (WHERE type = 'ticket' AND data->>'state' = 'open') as open_tickets,
+        COUNT(*) FILTER (WHERE type = 'ticket' AND data->>'state' = 'closed') as closed_tickets
+      FROM data
     `);
-    const openTickets = parseInt(openTicketsResult.rows[0].count);
     
-    const closedTicketsResult = await pool.query(`
-      SELECT COUNT(*) as count FROM data 
-      WHERE type = 'ticket' AND data->>'state' = 'closed'
-    `);
-    const closedTickets = parseInt(closedTicketsResult.rows[0].count);
-   
+    const totalRecords = parseInt(statsResult.rows[0].total_records);
+    const panels = parseInt(statsResult.rows[0].panels);
+    const tickets = parseInt(statsResult.rows[0].tickets);
+    const openTickets = parseInt(statsResult.rows[0].open_tickets);
+    const closedTickets = parseInt(statsResult.rows[0].closed_tickets);
 
     // Get database size
     const sizeResult = await pool.query(`

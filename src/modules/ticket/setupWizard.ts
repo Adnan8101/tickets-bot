@@ -821,7 +821,7 @@ export class SetupWizardHandler implements InteractionHandler {
           // New panel, send message
           const message = await channel.send({ embeds: [embed], components: [button] });
           panel.messageId = message.id;
-          client.db.save(panel);
+          await client.db.save(panel);
         }
       }
     } catch (error) {
@@ -1388,12 +1388,21 @@ export class SetupWizardHandler implements InteractionHandler {
           .setFooter({ text: 'Click the button below to open a ticket' })
           .setTimestamp();
         
+        // Map color string to ButtonStyle
+        const colorMap = {
+          'Primary': ButtonStyle.Primary,
+          'Secondary': ButtonStyle.Secondary,
+          'Success': ButtonStyle.Success,
+          'Danger': ButtonStyle.Danger,
+        };
+        const buttonStyle = colorMap[panel.color] || ButtonStyle.Primary;
+        
         const button = new ActionRowBuilder<ButtonBuilder>().addComponents(
           new ButtonBuilder()
             .setCustomId(`ticket:open:${panel.id}`)
             .setLabel(panel.label)
             .setEmoji(panel.emoji!)
-            .setStyle(ButtonStyle.Primary)
+            .setStyle(buttonStyle)
         );
 
         const message = await channel.send({ embeds: [embed], components: [button] });

@@ -1,4 +1,5 @@
 import { Pool, PoolClient } from 'pg';
+import { ErrorHandler } from '../errorHandler';
 
 export interface DataRow {
   id: string;
@@ -77,6 +78,11 @@ export type StoredData = PanelData | TicketData | AutosaveData | GuildConfig;
 class PostgresDB {
   private pool: Pool;
   private isConnected: boolean = false;
+  
+  // Caching layer to reduce database queries
+  private prefixCache: Map<string, { prefix: string; cachedAt: number }> = new Map();
+  private panelCache: Map<string, { panel: PanelData; cachedAt: number }> = new Map();
+  private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
   constructor(connectionString?: string) {
     const dbUrl = connectionString || process.env.DATABASE_URL;
@@ -110,6 +116,30 @@ class PostgresDB {
     this.initializeDatabase().catch(err => {
       console.error('Database initialization error:', err.message);
     });
+    
+    // Warm up connection pool in background
+    this.warmupPool();
+  }
+  
+  /**
+   * Warm up connection pool by creating initial connections
+   */
+  private async warmupPool(): Promise<void> {
+    try {
+      // Create 3 connections to warm up the pool
+      const warmupPromises = [];
+      for (let i = 0; i < 3; i++) {
+        warmupPromises.push(
+          this.pool.connect().then(client => {
+            client.release();
+          })
+        );
+      }
+      await Promise.all(warmupPromises);
+      console.log('✅ Connection pool warmed up');
+    } catch (error) {
+      console.warn('⚠️ Pool warmup failed:', error);
+    }
   }
 
   private async initializeDatabase(retries = 3): Promise<void> {
@@ -292,8 +322,49 @@ class PostgresDB {
    * Get tickets for a specific panel
    */
   async getTicketsByPanel(panelId: string): Promise<TicketData[]> {
-    const allTickets = await this.getAllTickets();
-    return allTickets.filter(t => t.panelId === panelId);
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(
+        `SELECT * FROM data WHERE type = 'ticket' AND data->>'panelId' = $1 ORDER BY "updatedAt" DESC`,
+        [panelId]
+      );
+      
+      return result.rows.map(row => {
+        return typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+      });
+    } catch (error: any) {
+      ErrorHandler.handle(error, 'Get tickets by panel');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  
+  /**
+   * Get open tickets for a specific user and panel (optimized query)
+   */
+  async getOpenTicketsForUser(userId: string, panelId: string): Promise<TicketData[]> {
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(
+        `SELECT * FROM data 
+         WHERE type = 'ticket' 
+         AND data->>'owner' = $1 
+         AND data->>'panelId' = $2 
+         AND data->>'state' = 'open'
+         ORDER BY "updatedAt" DESC`,
+        [userId, panelId]
+      );
+      
+      return result.rows.map(row => {
+        return typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+      });
+    } catch (error: any) {
+      ErrorHandler.handle(error, 'Get open tickets for user');
+      return [];
+    } finally {
+      client.release();
+    }
   }
 
   /**
@@ -370,14 +441,36 @@ class PostgresDB {
       updatedAt: new Date().toISOString()
     };
     await this.save(config);
+    
+    // Invalidate cache
+    this.clearPrefixCache(guildId);
   }
 
   /**
-   * Get guild prefix or default
+   * Get guild prefix or default (with caching)
    */
   async getPrefix(guildId: string): Promise<string> {
+    // Check cache first
+    const cached = this.prefixCache.get(guildId);
+    if (cached && Date.now() - cached.cachedAt < this.CACHE_TTL) {
+      return cached.prefix;
+    }
+    
+    // Fetch from database
     const config = await this.getGuildConfig(guildId);
-    return config?.prefix || '$';
+    const prefix = config?.prefix || '$';
+    
+    // Update cache
+    this.prefixCache.set(guildId, { prefix, cachedAt: Date.now() });
+    
+    return prefix;
+  }
+  
+  /**
+   * Clear prefix cache for a guild (call when prefix is updated)
+   */
+  clearPrefixCache(guildId: string): void {
+    this.prefixCache.delete(guildId);
   }
 
   /**

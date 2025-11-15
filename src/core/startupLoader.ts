@@ -3,17 +3,20 @@ import { BotClient } from './client';
 export class StartupLoader {
   /**
    * Load and restore all panels and tickets on bot startup
+   * Pre-warm caches for faster first access
    */
   static async load(client: BotClient): Promise<void> {
 
     try {
-      // Load all panels from PostgreSQL cloud database
+      // Pre-warm the database caches by loading all panels
       const panels = await client.db.getAllPanels();
+      console.log(`📂 Loaded ${panels.length} panel(s)`);
 
-      // Load all tickets from PostgreSQL cloud database
+      // Pre-warm ticket cache by loading all tickets
       const tickets = await client.db.getAllTickets();
+      console.log(`🎫 Loaded ${tickets.length} ticket(s)`);
 
-      // Verify panel messages still exist
+      // Verify panel messages still exist and cache the results
       let restored = 0;
       let missing = 0;
 
@@ -28,7 +31,7 @@ export class StartupLoader {
             continue;
           }
 
-          // Try to fetch the message
+          // Try to fetch and cache the message
           const message = await channel.messages.fetch(panel.messageId);
           if (message) {
             restored++;
@@ -37,8 +40,12 @@ export class StartupLoader {
           missing++;
         }
       }
+      
+      console.log(`✅ Verified ${restored} active panel message(s), ${missing} missing`);
+      console.log(`👍 Startup cache warm-up complete`);
 
     } catch (error) {
+      console.error('❌ Startup loader error:', error);
     }
   }
 

@@ -57,14 +57,15 @@ client.once('clientReady', async () => {
   console.log('\n🤖 Bot is online!');
   console.log(`📝 Logged in as ${client.user?.tag}`);
 
-  // Wait for database connection
+  // Wait for database connection (reduced timeout)
   console.log('🔌 Waiting for database connection...');
-  const dbConnected = await client.db.waitForConnection(30000);
+  const dbConnected = await client.db.waitForConnection(10000); // Reduced from 30s to 10s
   if (!dbConnected) {
-    console.error('❌ Database connection timeout');
-    process.exit(1);
+    console.warn('⚠️ Database connection timeout - continuing anyway');
+    console.warn('⚠️ Some features may not work until database connects');
+  } else {
+    console.log('✅ Database connected');
   }
-  console.log('✅ Database connected');
 
   // Set bot name for embeds
   if (client.user?.username) {

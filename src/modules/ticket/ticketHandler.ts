@@ -15,6 +15,7 @@ import { TicketData, PanelData } from '../../core/db/postgresDB';
 import { EmbedController } from '../../core/embedController';
 import { InteractionHandler } from '../../core/interactionRouter';
 import { ErrorHandler } from '../../core/errorHandler';
+import { PermissionHelper } from '../../core/permissionHelper';
 import { generateProfessionalTranscript, createTranscriptEmbed, generateTicketNumber, TranscriptOptions } from './transcriptGenerator';
 import { SetupWizardHandler } from './setupWizard';
 
@@ -23,39 +24,13 @@ export class TicketHandler implements InteractionHandler {
   private static lastChannelOperation: Map<string, number> = new Map();
   
   /**
-   * Map permission names to Discord PermissionFlagsBits
-   */
-  private mapPermissionsToFlags(permissions: string[]): bigint[] {
-    const permissionMap: Record<string, bigint> = {
-      'ViewChannel': PermissionFlagsBits.ViewChannel,
-      'SendMessages': PermissionFlagsBits.SendMessages,
-      'ReadMessageHistory': PermissionFlagsBits.ReadMessageHistory,
-      'AttachFiles': PermissionFlagsBits.AttachFiles,
-      'EmbedLinks': PermissionFlagsBits.EmbedLinks,
-      'AddReactions': PermissionFlagsBits.AddReactions,
-      'UseExternalEmojis': PermissionFlagsBits.UseExternalEmojis,
-      'MentionEveryone': PermissionFlagsBits.MentionEveryone,
-      'ManageMessages': PermissionFlagsBits.ManageMessages,
-      'ManageChannels': PermissionFlagsBits.ManageChannels,
-      'CreatePublicThreads': PermissionFlagsBits.CreatePublicThreads,
-      'CreatePrivateThreads': PermissionFlagsBits.CreatePrivateThreads,
-      'SendMessagesInThreads': PermissionFlagsBits.SendMessagesInThreads,
-      'UseApplicationCommands': PermissionFlagsBits.UseApplicationCommands,
-    };
-
-    return permissions
-      .map(perm => permissionMap[perm])
-      .filter(flag => flag !== undefined);
-  }
-  
-  /**
    * Safely perform channel operations with rate limit protection
    */
   private async safeChannelOperation<T>(
     channelId: string,
     operation: () => Promise<T>,
     operationName: string,
-    minDelay: number = 2000
+    minDelay: number = 500
   ): Promise<{ success: boolean; result: T | null; error?: any }> {
     try {
       // Check if we need to wait
@@ -154,10 +129,8 @@ export class TicketHandler implements InteractionHandler {
     const guild = interaction.guild;
     const user = interaction.user;
 
-    // Note: Removed restriction - users can now have multiple tickets on different panels
-    // Only check for existing ticket on THIS specific panel
-    const existingTickets = (await client.db.getAllTickets())
-      .filter(t => t.owner === user.id && t.state === 'open' && t.panelId === panelId);
+    // Optimized: Query only open tickets for this user and panel
+    const existingTickets = await client.db.getOpenTicketsForUser(user.id, panelId);
 
     if (existingTickets.length > 0) {
       const existingChannel = existingTickets[0].channelId;
@@ -305,7 +278,7 @@ export class TicketHandler implements InteractionHandler {
       // Add user permissions
       const userPermissions = panel.userPermissions || [];
       if (userPermissions.length > 0) {
-        const userPerms = this.mapPermissionsToFlags(userPermissions);
+        const userPerms = PermissionHelper.mapPermissionsToFlags(userPermissions);
         permissionOverwrites.push({
           id: user.id,
           allow: userPerms,
@@ -327,7 +300,7 @@ export class TicketHandler implements InteractionHandler {
       // Add staff permissions
       const staffPermissions = panel.staffPermissions || [];
       if (staffPermissions.length > 0) {
-        const staffPerms = this.mapPermissionsToFlags(staffPermissions);
+        const staffPerms = PermissionHelper.mapPermissionsToFlags(staffPermissions);
         permissionOverwrites.push({
           id: panel.staffRole,
           allow: staffPerms,
@@ -486,12 +459,11 @@ export class TicketHandler implements InteractionHandler {
     }
 
     // Check if user is the owner
-    const isOwner = ticket.owner === interaction.user.id;
     const member = interaction.member as any;
-    const isStaff = member?.roles?.cache?.has(panel.staffRole || '') || interaction.memberPermissions?.has('ManageChannels');
+    const hasManageChannels = interaction.memberPermissions?.has('ManageChannels') || false;
     
-    // Check permission based on allowOwnerClose setting
-    if (isOwner && panel.allowOwnerClose === false && !isStaff) {
+    // Use permission helper
+    if (!PermissionHelper.canCloseTicket(interaction.user.id, ticket.owner, member, panel, hasManageChannels)) {
       // Always use followUp with ephemeral for error messages (interaction may be deferred by router)
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp({
@@ -754,7 +726,7 @@ export class TicketHandler implements InteractionHandler {
       try {
         const userPermissions = panel.userPermissions || [];
         if (userPermissions.length > 0) {
-          const userPerms = this.mapPermissionsToFlags(userPermissions);
+          const userPerms = PermissionHelper.mapPermissionsToFlags(userPermissions);
           await channel.permissionOverwrites.create(ticket.owner, {
             ViewChannel: true,
             SendMessages: userPerms.includes(PermissionFlagsBits.SendMessages) ? true : null,
@@ -903,9 +875,9 @@ export class TicketHandler implements InteractionHandler {
 
     // Check if user is staff
     const member = interaction.member as any;
-    const isStaff = member?.roles?.cache?.has(panel.staffRole || '') || interaction.memberPermissions?.has('ManageChannels');
+    const hasManageChannels = interaction.memberPermissions?.has('ManageChannels') || false;
     
-    if (!isStaff) {
+    if (!PermissionHelper.isStaff(member, panel, hasManageChannels)) {
       // Use editReply if already deferred (by router), otherwise reply
       if (interaction.deferred || interaction.replied) {
         await interaction.followUp({
@@ -1511,7 +1483,10 @@ export class TicketHandler implements InteractionHandler {
     const userId = interaction.customId.split(':')[2];
     const ticketIds = interaction.values;
 
-    await interaction.deferUpdate();
+    // Defer update to prevent interaction failed error
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferUpdate();
+    }
 
     let deletedChannels = 0;
     let deletedData = 0;
@@ -1528,6 +1503,7 @@ export class TicketHandler implements InteractionHandler {
           deletedChannels++;
         }
       } catch (error) {
+        ErrorHandler.handle(error as Error, `Delete channel ${ticket.channelId}`);
       }
 
       // Delete ticket data from database
@@ -1550,7 +1526,10 @@ export class TicketHandler implements InteractionHandler {
   async handleClearAll(interaction: ButtonInteraction, client: BotClient): Promise<void> {
     const userId = interaction.customId.split(':')[2];
 
-    await interaction.deferUpdate();
+    // Defer update to prevent interaction failed error
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferUpdate();
+    }
 
     // Get all tickets for this user
     const allTickets = await client.db.getAllTickets();
@@ -1568,6 +1547,7 @@ export class TicketHandler implements InteractionHandler {
           deletedChannels++;
         }
       } catch (error) {
+        ErrorHandler.handle(error as Error, `Delete channel ${ticket.channelId}`);
       }
 
       // Delete ticket data from database
@@ -1588,10 +1568,19 @@ export class TicketHandler implements InteractionHandler {
    * Handle cancel clear operation
    */
   async handleClearCancel(interaction: ButtonInteraction): Promise<void> {
-    await interaction.update({
-      content: '<:tcet_cross:1437995480754946178> Operation cancelled.',
-      embeds: [],
-      components: [],
-    });
+    // Check if already deferred by router, use editReply instead of update
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply({
+        content: '<:tcet_cross:1437995480754946178> Operation cancelled.',
+        embeds: [],
+        components: [],
+      });
+    } else {
+      await interaction.update({
+        content: '<:tcet_cross:1437995480754946178> Operation cancelled.',
+        embeds: [],
+        components: [],
+      });
+    }
   }
 }

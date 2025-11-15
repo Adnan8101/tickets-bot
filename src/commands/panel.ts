@@ -289,7 +289,7 @@ async function handleTemplates(
   const embeds = userTemplates.slice(0, 10).map((template: any) => {
     const templateId = template.id.replace('template:', '');
     return new EmbedBuilder()
-      .setTitle(`📋 ${template.name || 'Unnamed Template'}`)
+      .setTitle(` ${template.name || 'Unnamed Template'}`)
       .setColor(template.color === 'Primary' ? 0x5865F2 : 
                 template.color === 'Success' ? 0x57F287 :
                 template.color === 'Danger' ? 0xED4245 : 0x99AAB5)

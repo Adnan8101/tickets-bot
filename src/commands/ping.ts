@@ -9,9 +9,13 @@ export const data = new SlashCommandBuilder()
   .setDescription('Check bot latency');
 
 export async function execute(interaction: ChatInputCommandInteraction) {
-  const start = Date.now();
-  await interaction.reply("🏓");
-  const latency = Date.now() - start;
+  // Measure actual round-trip latency
+  const replyStart = Date.now();
+  await interaction.deferReply();
+  const replyLatency = Date.now() - replyStart;
+  
+  // WebSocket ping is the actual API latency
+  const wsLatency = Math.round(interaction.client.ws.ping);
 
-  await interaction.editReply(`🏓 **${latency}ms** | API: ${Math.round(interaction.client.ws.ping)}ms`);
+  await interaction.editReply(`🏓 **Bot: ${replyLatency}ms** | **API: ${wsLatency}ms**`);
 }

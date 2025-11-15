@@ -37,49 +37,50 @@ export class InteractionRouter {
       const action = parts[1];
 
       // Check if this action opens a modal - if so, don't defer
-      const modalActions = ['set-name', 'set-description', 'set-openmessage', 'add-question', 'set-label'];
+      const modalActions = ['set-name', 'set-description', 'set-openmessage', 'add-question', 'set-label', 'set-emoji'];
       const shouldShowModal = modalActions.includes(action);
 
       // Actions that should use ephemeral reply instead of update
       const ephemeralActions = ['open'];
       const shouldUseEphemeral = ephemeralActions.includes(action);
 
-      // Defer reply immediately to prevent "interaction failed" messages (except for modals and open action)
-      if (!shouldShowModal && !shouldUseEphemeral && (interaction.isButton() || interaction.isStringSelectMenu())) {
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.deferUpdate().catch(() => {});
+      // Defer for buttons/menus ONLY if not opening modal and not using ephemeral
+      // This prevents "interaction failed" errors
+      if (!shouldShowModal && !shouldUseEphemeral && !interaction.isModalSubmit()) {
+        if ((interaction.isButton() || interaction.isStringSelectMenu()) && !interaction.replied && !interaction.deferred) {
+          await interaction.deferUpdate().catch((err) => {
+            console.warn('[Router] Failed to defer:', err.message);
+          });
         }
       }
-
-      // For open action with questions, it will show modal, otherwise defer with ephemeral reply
-      if (shouldUseEphemeral && (interaction.isButton() || interaction.isStringSelectMenu())) {
-        // Don't defer here - let the handler decide if it needs modal or ephemeral reply
-      }
-
-      // For modal submits, let the handler decide how to respond
-      // Some modals need to reply with messages, others need to update
-      // Do not automatically defer modal submits
 
       // Find matching handler
       const handler = this.handlers.get(system);
       if (handler) {
         await handler.execute(interaction, client, parts);
       } else {
+        console.warn(`[Router] No handler found for system: ${system}`);
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.error('[Router] Error:', error.message, error.stack);
       
       // Try to send error message
       try {
-        const errorMessage = 'An error occurred while processing your interaction. Please try again.';
+        const errorMessage = 'Something went wrong. Please try again or contact support.';
         
         if (interaction.isRepliable()) {
           if (interaction.replied || interaction.deferred) {
-            await interaction.editReply({ content: errorMessage, components: [], embeds: [] }).catch(() => {});
+            await interaction.editReply({ content: errorMessage, components: [], embeds: [] }).catch((err) => {
+              console.error('[Router] Failed to edit reply:', err.message);
+            });
           } else {
-            await interaction.reply({ content: errorMessage, flags: 1 << 6 }).catch(() => {}); // MessageFlags.Ephemeral
+            await interaction.reply({ content: errorMessage, flags: 1 << 6 }).catch((err) => {
+              console.error('[Router] Failed to reply:', err.message);
+            });
           }
         }
-      } catch (replyError) {
+      } catch (replyError: any) {
+        console.error('[Router] Failed to send error message:', replyError.message);
       }
     }
   }

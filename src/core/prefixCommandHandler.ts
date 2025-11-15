@@ -12,7 +12,7 @@ export class PrefixCommandHandler {
     // Ignore DMs
     if (!message.guild) return;
 
-    // Get guild-specific prefix
+    // Get guild-specific prefix (now cached)
     const prefix = await client.db.getPrefix(message.guild.id);
     
     // Check if message starts with prefix
@@ -27,6 +27,9 @@ export class PrefixCommandHandler {
     // Get member for permission checks
     const member = message.member;
     if (!member) return;
+    
+    // Add immediate reaction for instant feedback
+    const reactionPromise = message.react('⏳').catch(() => {});
 
     try {
       switch (commandName) {
@@ -72,6 +75,9 @@ export class PrefixCommandHandler {
           // Unknown command, ignore
           break;
       }
+      
+      // Remove hourglass reaction after processing
+      await reactionPromise.then(() => message.reactions.cache.get('⏳')?.users.remove(client.user?.id).catch(() => {}));
     } catch (error) {
       await message.reply({
         content: '<:tcet_cross:1437995480754946178> An error occurred while executing the command.',

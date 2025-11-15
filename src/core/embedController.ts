@@ -229,10 +229,9 @@ export class EmbedController {
    */
   static createPanelListEmbed(panels: PanelData[]): EmbedBuilder {
     const embed = new EmbedBuilder()
-      .setTitle('📋 Configured Ticket Panels')
+      .setTitle(' Configured Ticket Panels')
       .setColor(null)
-      .setTimestamp()
-      .setFooter({ text: 'Powered by Beru Tickets' });
+      .setTimestamp();
 
     if (panels.length === 0) {
       embed.setDescription('No panels configured yet. Use `/ticket panel setup` to create one!');
@@ -281,8 +280,7 @@ export class EmbedController {
           inline: true
         }
       )
-      .setFooter({ text: 'Powered by Beru Tickets' })
-      .setTimestamp();
+            .setTimestamp();
 
     // Add custom questions if any
     if (panel.questions && panel.questions.length > 0) {
@@ -311,7 +309,6 @@ export class EmbedController {
           inline: false
         }
       )
-      .setFooter({ text: 'Powered by Beru Tickets' })
       .setTimestamp();
   }
 
@@ -325,10 +322,26 @@ export class EmbedController {
     }
 
     const timer = setTimeout(() => {
-      callback();
-      this.debounceTimers.delete(key);
+      try {
+        callback();
+      } catch (error) {
+        console.error('[EmbedController] Debounced callback error:', error);
+      } finally {
+        // Always clean up timer, even if callback throws
+        this.debounceTimers.delete(key);
+      }
     }, delay);
 
     this.debounceTimers.set(key, timer);
+  }
+  
+  /**
+   * Clear all debounce timers (cleanup)
+   */
+  static clearAllTimers(): void {
+    for (const [key, timer] of this.debounceTimers.entries()) {
+      clearTimeout(timer);
+    }
+    this.debounceTimers.clear();
   }
 }
