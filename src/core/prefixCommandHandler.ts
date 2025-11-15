@@ -429,7 +429,16 @@ export class PrefixCommandHandler {
    */
   private async handlePing(message: Message, client: BotClient): Promise<void> {
     const wsLatency = Math.round(client.ws.ping);
-    await message.reply(`🏓 Pong: ${wsLatency}ms`);
+    
+    // If ws.ping is -1 or invalid, measure round-trip time
+    if (wsLatency <= 0) {
+      const start = Date.now();
+      const sent = await message.reply('🏓 Pong: ...');
+      const latency = Date.now() - start;
+      await sent.edit(`🏓 Pong: ${latency}ms`);
+    } else {
+      await message.reply(`🏓 Pong: ${wsLatency}ms`);
+    }
   }
 
   /**
